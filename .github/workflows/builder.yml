@@ -3,7 +3,7 @@ name: C++ Builder
 on: 
   push:
     branches:
-    - master
+    - main
 
 jobs:
 
