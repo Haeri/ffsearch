@@ -21,7 +21,7 @@ jobs:
       uses: actions/upload-artifact@v3
       with:
         name: ffsearch_x64-windows
-        path: *.exe
+        path: 'ffsearch.exe'
     
   build-linux:
    name: Linux Build
@@ -38,7 +38,7 @@ jobs:
       uses: actions/upload-artifact@v3
       with:
         name: ffsearch_x64-linux
-        path: *
+        path: 'ffsearch'
 
   build-mac:
    name: Mac Build
@@ -53,4 +53,4 @@ jobs:
       uses: actions/upload-artifact@v3
       with:
         name: ffsearch_x64-macos
-        path: *
+        path: 'ffsearch'
