@@ -16,7 +16,7 @@ jobs:
     - name: Setup Environment
       uses: seanmiddleditch/gha-setup-vsdevenv@v4
     - name: Build
-      run: cl.exe /EHsc ffsearch.cpp
+      run: cl.exe /EHsc /O2 /Fe:ffsearch.exe .\ffsearch.cpp
     - name: Upload
       uses: actions/upload-artifact@v3
       with:
