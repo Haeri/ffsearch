@@ -12,7 +12,7 @@
 #include <filesystem>
 #include <string_view>
 
-#ifdef _MSC_VER
+#ifdef _WIN32
 #include <Windows.h>
 #else
 #include <sys/mman.h>
@@ -42,7 +42,7 @@ struct TreeNode
 
 TreeNode* trie_cache;
 
-#ifdef _MSC_VER
+#ifdef _WIN32
 struct FileContents {
 	size_t size;
 	char* buffer;
@@ -344,7 +344,7 @@ void generate_table_pages(const std::string& path, const std::vector<std::string
 		char* chunks = new char[max_row_size * row_count];
 		size_t offset = 0;
 		for (int j = i * PAGE_SIZE; j < (i + 1) * PAGE_SIZE && j < table.size(); ++j) {
-#ifdef _MSC_VER
+#ifdef _WIN32
 			strncat_s(chunks + offset, max_row_size, table[j].c_str(), max_row_size);
 #else
 			strncat(chunks + offset, table[j].c_str(), max_row_size);
