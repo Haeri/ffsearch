@@ -23,7 +23,7 @@
 
 #define PAGE_SIZE 1000000
 
-
+namespace fs = std::filesystem;
 using namespace std::chrono;
 
 
@@ -174,16 +174,16 @@ std::string to_lowercase(const std::string& s) {
 void remove_diacritics(unsigned char* p) {
 	//char* p = str;
 	//while ((*p) != 0) {
-		const char*
-			//   "ÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖ×ØÙÚÛÜÝÞßàáâãäåæçèéêëìíîïðñòóôõö÷øùúûüýþÿ"
-			tr = "AAAAAAECEEEEIIIIDNOOOOOx0UUUUYPsaaaaaaeceeeeiiiiOnooooo/0uuuuypy";
-		unsigned char ch = (*p);
-		if (ch >= 192) {
-			(*p) = tr[ch - 192];
-		}
-		//++p; // http://stackoverflow.com/questions/14094621/
-	//}
-	//return str;
+	const char*
+		//   "ÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖ×ØÙÚÛÜÝÞßàáâãäåæçèéêëìíîïðñòóôõö÷øùúûüýþÿ"
+		tr = "AAAAAAECEEEEIIIIDNOOOOOx0UUUUYPsaaaaaaeceeeeiiiiOnooooo/0uuuuypy";
+	unsigned char ch = (*p);
+	if (ch >= 192) {
+		(*p) = tr[ch - 192];
+	}
+	//++p; // http://stackoverflow.com/questions/14094621/
+//}
+//return str;
 }
 
 
@@ -262,7 +262,7 @@ void insert_token(TreeNode* root, const std::string& token, int index)
 
 	for (int i = 0; i < token.size(); ++i) {
 		TreeNode* tn;
-		unsigned char key = tolower(token[i]);		
+		unsigned char key = tolower(token[i]);
 		remove_diacritics(&key);
 
 		if (tnp->children.find(key) == tnp->children.end()) {
@@ -368,10 +368,10 @@ struct SchemaColumnIndex {
 };
 
 
-bool ff_index(const std::string& fileName, const std::set<std::string>& columns) {
-	std::cout << "Indexing started for " << fileName << std::endl;
+bool ff_index(const std::string& filename, const std::set<std::string>& columns) {
+	std::cout << "Indexing started for " << filename << std::endl;
 
-	std::string tableName = split(fileName, '.')[0];
+	std::string tableName = fs::path(filename).stem().string();
 	std::string tablePath = TABLE_DIR + "/" + tableName;
 
 	if (!std::filesystem::is_directory(tablePath) || !std::filesystem::exists(tablePath)) {
@@ -382,14 +382,14 @@ bool ff_index(const std::string& fileName, const std::set<std::string>& columns)
 
 	//TreeNode* root = new TreeNode();
 	std::string line;
-	std::ifstream scv_file(fileName);
+	std::ifstream scv_file(filename);
 	int line_index = 0;
 
 	//std::unordered_map<int, TreeNode*> column_map;
 	std::vector<SchemaColumnIndex> schema_column_index;
 
 	if (scv_file.is_open()) {
-		
+
 		// Get schema
 		getline(scv_file, line);
 		std::vector<std::string> schema = split(line, ',');
@@ -411,7 +411,7 @@ bool ff_index(const std::string& fileName, const std::set<std::string>& columns)
 
 			table.push_back(line);
 
-			for (auto const& index_column: schema_column_index) {
+			for (auto const& index_column : schema_column_index) {
 				std::vector<std::string> row_elements = split(line, ',');
 				std::string element = to_lowercase(row_elements[index_column.index]);
 				std::vector<std::string> element_parts = split(element, ' ');
@@ -432,7 +432,7 @@ bool ff_index(const std::string& fileName, const std::set<std::string>& columns)
 	}
 
 	for (auto const& index_column : schema_column_index) {
-	//for (auto const& column : columns) {
+		//for (auto const& column : columns) {
 		std::string dir_name = tablePath + "/index/" + index_column.column + "/trie/";
 		if (!std::filesystem::is_directory(dir_name) || !std::filesystem::exists(dir_name)) {
 			std::filesystem::create_directories(dir_name);
