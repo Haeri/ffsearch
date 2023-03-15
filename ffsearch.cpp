@@ -13,6 +13,7 @@
 #include <string_view>
 
 #ifdef _WIN32
+#define NOMINMAX
 #include <Windows.h>
 #else
 #include <sys/mman.h>
@@ -329,23 +330,23 @@ std::vector<int> find_token(TreeNode* root, const std::string& token)
 
 
 void generate_table_pages(const std::string& path, const std::vector<std::string>& table) {
-	for (int i = 0; i < table.size() / PAGE_SIZE; ++i) {
+	for (int i = 0; i <= table.size() / PAGE_SIZE; ++i) {
 		std::string tablePageFileName = path + "/" + PAGE_PREFIX + std::to_string(i);
 		std::ofstream outfile(tablePageFileName, std::ios::binary);
 
 		size_t max_row_size = 0;
-		size_t row_count = 0;
-		for (int j = i * PAGE_SIZE; j < (i + 1) * PAGE_SIZE && j < table.size(); ++j) {
+		size_t row_count = std::min(PAGE_SIZE, (int)table.size() - i * PAGE_SIZE);
+		for (int j = 0; j < row_count; ++j) {
 			if (table[j].size() > max_row_size) max_row_size = table[j].size();
-			++row_count;
 		}
 		max_row_size += 1; // \0
 
-		char* chunks = new char[max_row_size * row_count];
+		char* chunks = new char[max_row_size * row_count]();
+
 		size_t offset = 0;
-		for (int j = i * PAGE_SIZE; j < (i + 1) * PAGE_SIZE && j < table.size(); ++j) {
+		for (int j = 0; j < row_count; ++j) {
 #ifdef _WIN32
-			strncat_s(chunks + offset, max_row_size, table[j].c_str(), max_row_size);
+			strncat_s(chunks + offset, table[j].size() + 1, table[j].c_str(), max_row_size);
 #else
 			strncat(chunks + offset, table[j].c_str(), max_row_size);
 #endif

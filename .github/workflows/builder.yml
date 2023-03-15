@@ -17,6 +17,10 @@ jobs:
       uses: seanmiddleditch/gha-setup-vsdevenv@v4
     - name: Build
       run: cl.exe /EHsc /O2 /std:c++17 /Fe:ffsearch.exe .\ffsearch.cpp
+    - name: Test
+      run: |
+        .\ffsearch.exe index -f ".\test\names.csv" -c "full_name,nationality"
+        .\ffsearch.exe search -t "names" -c "full_name" -s "Nova Gatsby" -l 30 -f
     - name: Upload
       uses: actions/upload-artifact@v3
       with:
@@ -29,11 +33,12 @@ jobs:
    steps:
     - name: Download Repository
       uses: actions/checkout@v3
-    - name: Setup Environment
-      run: |
-        sudo apt update
     - name: Build
       run: g++ -std=c++17 ffsearch.cpp -o ffsearch -O3
+    - name: Test
+      run: |
+        ./ffsearch index -f "./test/names.csv" -c "full_name,nationality"
+        ./ffsearch search -t "names" -c "full_name" -s "Nova Gatsby" -l 30 -f
     - name: Upload
       uses: actions/upload-artifact@v3
       with:
@@ -47,8 +52,11 @@ jobs:
     - name: Download Repository
       uses: actions/checkout@v3
     - name: Build
+      run: g++ -std=c++17 ffsearch.cpp -o ffsearch -O3
+    - name: Test
       run: |
-        g++ -std=c++17 ffsearch.cpp -o ffsearch -O3
+        ./ffsearch index -f "./test/names.csv" -c "full_name,nationality"
+        ./ffsearch search -t "names" -c "full_name" -s "Nova Gatsby" -l 30 -f
     - name: Upload
       uses: actions/upload-artifact@v3
       with:
