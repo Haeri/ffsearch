@@ -3,12 +3,11 @@
 #include <vector>
 #include <set>
 #include <string>
-#include <string.h>
+#include <sstream>
+#include <cstring>
 #include <fstream>
 #include <algorithm>
-#include <sstream>
 #include <chrono>
-#include <cstring>
 #include <filesystem>
 #include <string_view>
 
@@ -28,11 +27,19 @@ namespace fs = std::filesystem;
 using namespace std::chrono;
 
 
-const std::string PAGE_PREFIX = "page_";
-const std::string TABLE_DIR = "tables";
 
-const char SINGLE_WILDCARD = '?';
-const char MULTI_WILDCARD = '*';
+struct FileContents {
+	size_t size;
+	char* buffer;
+#ifdef _WIN32
+	LPVOID _mapped;
+	HANDLE _hMapping;
+	HANDLE _hFile;
+#else
+	void* _mapped;
+#endif
+};
+
 
 struct TreeNode
 {
@@ -40,19 +47,40 @@ struct TreeNode
 	std::vector<int> index;
 };
 
-
-TreeNode* trie_cache;
-
-#ifdef _WIN32
-struct FileContents {
-	size_t size;
+struct TablePage {
+	size_t row_size;
+	size_t num_rows;
 	char* buffer;
 
-	LPVOID _mapped;
-	HANDLE _hMapping;
-	HANDLE _hFile;
+	FileContents _fc;
 };
-FileContents fast_read(const std::string& file_path) {
+
+struct SchemaColumnIndex {
+	std::string column;
+	int index;
+	TreeNode* root;
+};
+
+struct ScoredResult {
+	int index;
+	float score;
+};
+
+
+
+const std::string PAGE_PREFIX = "page_";
+const std::string TABLE_DIR = "tables";
+
+const char SINGLE_WILDCARD = '?';
+const char MULTI_WILDCARD = '*';
+
+static std::unordered_map<int, TablePage> loaded_page_map;
+static TreeNode* trie_cache;
+
+
+
+#ifdef _WIN32
+FileContents open_fast_read(const std::string& file_path) {
 	std::ifstream file(file_path);
 	if (!file) {
 		std::cerr << "Error: Failed to open file." << std::endl;
@@ -62,48 +90,38 @@ FileContents fast_read(const std::string& file_path) {
 	FileContents fc{};
 
 	// Open the file for reading and mapping into memory
-	fc._hFile = CreateFile(file_path.c_str(), GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+	fc._hFile = CreateFile(file_path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
 	if (fc._hFile == INVALID_HANDLE_VALUE) {
 		std::cerr << "Error: Failed to open file for memory mapping." << std::endl;
 		return {};
 	}
-	fc._hMapping = CreateFileMapping(fc._hFile, NULL, PAGE_READONLY, 0, 0, NULL);
-	if (fc._hMapping == NULL) {
+	fc._hMapping = CreateFileMapping(fc._hFile, nullptr, PAGE_READONLY, 0, 0, nullptr);
+	if (fc._hMapping == nullptr) {
 		std::cerr << "Error: Failed to map file into memory." << std::endl;
 		CloseHandle(fc._hFile);
 		return {};
 	}
 	fc._mapped = MapViewOfFile(fc._hMapping, FILE_MAP_READ, 0, 0, 0);
-	if (fc._mapped == NULL) {
+	if (fc._mapped == nullptr) {
 		std::cerr << "Error: Failed to map file into memory." << std::endl;
 		CloseHandle(fc._hMapping);
 		CloseHandle(fc._hFile);
 		return {};
 	}
 
-
-
-	fc.size = GetFileSize(fc._hFile, NULL);
+	fc.size = GetFileSize(fc._hFile, nullptr);
 	fc.buffer = static_cast<char*>(fc._mapped);
-
 
 	return fc;
 }
-void close_fast_file(FileContents fc) {
+void close_fast_read(FileContents fc) {
 	UnmapViewOfFile(fc._mapped);
 	CloseHandle(fc._hMapping);
 	CloseHandle(fc._hFile);
 }
 
 #else
-struct FileContents {
-	size_t size;
-	char* buffer;
-
-	void* _mapped;
-};
-
-FileContents fast_read(const std::string& file_path) {
+FileContents open_fast_read(const std::string& file_path) {
 	int fd = open(file_path.c_str(), O_RDONLY);
 	if (fd == -1) {
 		std::cerr << "Error: Failed to open file." << std::endl;
@@ -133,7 +151,7 @@ FileContents fast_read(const std::string& file_path) {
 	return fc;
 }
 
-void close_fast_file(FileContents fc) {
+void close_fast_read(FileContents fc) {
 	// Unmap the file from memory
 	munmap(fc._mapped, fc.size);
 }
@@ -154,7 +172,7 @@ std::vector<std::string> split(const std::string& input, const char& delimiter)
 	return elements;
 }
 
-std::string& padd(std::string& text, int size) {
+std::string& pad_string(std::string& text, int size) {
 	if (text.size() < size) {
 		text.insert(text.end(), size - text.size(), ' ');
 	}
@@ -173,8 +191,6 @@ std::string to_lowercase(const std::string& s) {
 }
 
 void remove_diacritics(unsigned char* p) {
-	//char* p = str;
-	//while ((*p) != 0) {
 	const char*
 		//   "ÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖ×ØÙÚÛÜÝÞßàáâãäåæçèéêëìíîïðñòóôõö÷øùúûüýþÿ"
 		tr = "AAAAAAECEEEEIIIIDNOOOOOx0UUUUYPsaaaaaaeceeeeiiiiOnooooo/0uuuuypy";
@@ -182,9 +198,6 @@ void remove_diacritics(unsigned char* p) {
 	if (ch >= 192) {
 		(*p) = tr[ch - 192];
 	}
-	//++p; // http://stackoverflow.com/questions/14094621/
-//}
-//return str;
 }
 
 
@@ -237,7 +250,7 @@ void deserialize_node(TreeNode* node, std::ifstream& infile)
 	for (size_t i = 0; i < num_children; i++) {
 		unsigned char key;
 		infile.read(reinterpret_cast<char*>(&key), sizeof(key));
-		TreeNode* child = new TreeNode();
+		auto* child = new TreeNode();
 		node->children[key] = child;
 		deserialize_node(child, infile);
 	}
@@ -250,7 +263,7 @@ TreeNode* deserialize_trie(const std::string& filename)
 		std::cerr << "Error: could not open file " << filename << std::endl;
 		return nullptr;
 	}
-	TreeNode* root = new TreeNode();
+	auto* root = new TreeNode();
 	deserialize_node(root, infile);
 	return root;
 }
@@ -261,9 +274,9 @@ void insert_token(TreeNode* root, const std::string& token, int index)
 {
 	TreeNode* tnp = root;
 
-	for (int i = 0; i < token.size(); ++i) {
+	for (const char& i : token) {
 		TreeNode* tn;
-		unsigned char key = tolower(token[i]);
+		unsigned char key = tolower(i);
 		remove_diacritics(&key);
 
 		if (tnp->children.find(key) == tnp->children.end()) {
@@ -283,34 +296,27 @@ std::vector<int> find_token(TreeNode* root, const std::string& token)
 {
 	TreeNode* tnp = root;
 	std::vector<int> ret;
-	//std::set<int> ret;
 
 	for (int i = 0; i < token.size(); ++i) {
 		unsigned char key = tolower(token[i]);
-		//std::cout << key << " -> ";
 		remove_diacritics(&key);
-		//std::cout << key << std::endl;
 
 		if (key == SINGLE_WILDCARD) {
 			for (auto const& child : tnp->children) {
 				auto tmp = find_token(child.second, token.substr(i + 1));
 				ret.insert(ret.end(), tmp.begin(), tmp.end());
-				//ret.insert(tmp.begin(), tmp.end());
 			}
-			return std::vector(ret.begin(), ret.end());
+			return { ret.begin(), ret.end() };
 		}
 		else if (key == MULTI_WILDCARD) {
 			for (auto const& child : tnp->children) {
 				auto tmp = find_token(child.second, SINGLE_WILDCARD + token.substr(i + 1));
 				ret.insert(ret.end(), tmp.begin(), tmp.end());
-				//ret.insert(tmp.begin(), tmp.end());
-			//}
-			//for (auto const& child : tnp->children) {
+
 				tmp = find_token(child.second, MULTI_WILDCARD + token.substr(i + 1));
 				ret.insert(ret.end(), tmp.begin(), tmp.end());
-				//ret.insert(tmp.begin(), tmp.end());
 			}
-			return std::vector(ret.begin(), ret.end());
+			return  { ret.begin(), ret.end() };
 		}
 		else if (tnp->children.find(key) == tnp->children.end()) {
 			return {};
@@ -321,18 +327,16 @@ std::vector<int> find_token(TreeNode* root, const std::string& token)
 	}
 
 	ret.insert(ret.end(), tnp->index.begin(), tnp->index.end());
-	//ret.insert(tnp->index.begin(), tnp->index.end());
 
 	return ret;
-	//return std::vector(ret.begin(), ret.end());
 }
 
 
 
-void generate_table_pages(const std::string& path, const std::vector<std::string>& table) {
+void generate_table(const std::string& path, const std::vector<std::string>& table) {
 	for (int i = 0; i <= table.size() / PAGE_SIZE; ++i) {
-		std::string tablePageFileName = path + "/" + PAGE_PREFIX + std::to_string(i);
-		std::ofstream outfile(tablePageFileName, std::ios::binary);
+		std::string table_page_file_name = std::string(path).append("/").append(PAGE_PREFIX).append(std::to_string(i));
+		std::ofstream outfile(table_page_file_name, std::ios::binary);
 
 		size_t max_row_size = 0;
 		size_t row_count = std::min(PAGE_SIZE, (int)table.size() - i * PAGE_SIZE);
@@ -355,39 +359,28 @@ void generate_table_pages(const std::string& path, const std::vector<std::string
 
 		outfile.write(reinterpret_cast<const char*>(&max_row_size), sizeof(max_row_size));
 		outfile.write(reinterpret_cast<const char*>(&row_count), sizeof(row_count));
-		outfile.write(reinterpret_cast<const char*>(chunks), sizeof(char) * (max_row_size)*row_count);
+		outfile.write(reinterpret_cast<const char*>(chunks), sizeof(char) * max_row_size * row_count);
 
 		outfile.close();
 	}
 }
 
-
-struct SchemaColumnIndex {
-	std::string column;
-	int index;
-	TreeNode* root;
-};
-
-
 bool ff_index(const std::string& filename, const std::set<std::string>& columns) {
 	std::cout << "Indexing started for " << filename << std::endl;
 
-	std::string tableName = fs::path(filename).stem().string();
-	std::string tablePath = TABLE_DIR + "/" + tableName;
+	std::string table_name = fs::path(filename).stem().string();
+	std::string table_path = TABLE_DIR + "/" + table_name;
 
-	if (!std::filesystem::is_directory(tablePath) || !std::filesystem::exists(tablePath)) {
-		std::filesystem::create_directories(tablePath);
+	if (!std::filesystem::is_directory(table_path) || !std::filesystem::exists(table_path)) {
+		std::filesystem::create_directories(table_path);
 	}
 
 	std::vector<std::string> table;
+	std::vector<SchemaColumnIndex> schema_column_index;
 
-	//TreeNode* root = new TreeNode();
 	std::string line;
 	std::ifstream scv_file(filename);
 	int line_index = 0;
-
-	//std::unordered_map<int, TreeNode*> column_map;
-	std::vector<SchemaColumnIndex> schema_column_index;
 
 	if (scv_file.is_open()) {
 
@@ -399,9 +392,9 @@ bool ff_index(const std::string& filename, const std::set<std::string>& columns)
 		for (auto const& column : schema) {
 			if (columns.find(column) != columns.end()) {
 				schema_column_index.push_back({
-					column,
-					schema_index,
-					new TreeNode
+													  column,
+													  schema_index,
+													  new TreeNode
 					});
 			}
 			++schema_index;
@@ -433,63 +426,44 @@ bool ff_index(const std::string& filename, const std::set<std::string>& columns)
 	}
 
 	for (auto const& index_column : schema_column_index) {
-		//for (auto const& column : columns) {
-		std::string dir_name = tablePath + "/index/" + index_column.column + "/trie/";
+		std::string dir_name = table_path + "/index/" + index_column.column + "/trie/";
 		if (!std::filesystem::is_directory(dir_name) || !std::filesystem::exists(dir_name)) {
 			std::filesystem::create_directories(dir_name);
 		}
-		for (auto const& alphabetIndex : index_column.root->children) {
-			serialize_trie(alphabetIndex.second, dir_name + std::to_string(alphabetIndex.first));
+		for (auto const& alphabet_index : index_column.root->children) {
+			serialize_trie(alphabet_index.second, dir_name + std::to_string(alphabet_index.first));
 		}
 	}
 
-	generate_table_pages(tablePath, table);
+	generate_table(table_path, table);
 
 	return true;
 }
 
 
-struct TablePage {
-	size_t row_size;
-	size_t num_rows;
-	char* buffer;
-
-	FileContents _fc;
-};
-
-std::unordered_map<int, TablePage> pageMap;
-
-std::string read_cache(const std::string& table, int index) {
+std::string read_table(const std::string& table, int index) {
 	int page = index / PAGE_SIZE;
 	int line = index - (page * PAGE_SIZE);
 
-	TablePage tp{};
+	TablePage table_page{};
 
-	if (pageMap.find(page) == pageMap.end()) {
+	if (loaded_page_map.find(page) == loaded_page_map.end()) {
 		auto start = high_resolution_clock::now();
 
-		tp._fc = fast_read(TABLE_DIR + "/" + table + "/" + PAGE_PREFIX + std::to_string(page));
+		table_page._fc = open_fast_read(TABLE_DIR + "/" + table + "/" + PAGE_PREFIX + std::to_string(page));
 
-		tp.row_size = *((size_t*)tp._fc.buffer);
-		tp.num_rows = *((size_t*)(tp._fc.buffer + sizeof(size_t)));
-		tp.buffer = (tp._fc.buffer + 2 * sizeof(size_t));
+		table_page.row_size = *((size_t*)table_page._fc.buffer);
+		table_page.num_rows = *((size_t*)(table_page._fc.buffer + sizeof(size_t)));
+		table_page.buffer = (table_page._fc.buffer + 2 * sizeof(size_t));
 
-		pageMap[page] = tp;
+		loaded_page_map[page] = table_page;
 	}
 	else {
-		tp = pageMap[page];
+		table_page = loaded_page_map[page];
 	}
 
-	return std::string(tp.buffer + (line * tp.row_size)); // , tp.row_size);
+	return { table_page.buffer + (line * table_page.row_size) }; // , tp.row_size);
 }
-
-
-struct ScoredResult {
-	int index;
-	float score;
-};
-
-
 
 std::vector<ScoredResult> find_all_tokens(const std::string& input, const std::string& table, const std::string& column, bool fuzzy) {
 	if (trie_cache == nullptr)
@@ -516,10 +490,6 @@ std::vector<ScoredResult> find_all_tokens(const std::string& input, const std::s
 			}
 			tokens.push_back(token + "?");
 		}
-
-		/*for (const std::string& token : tokens) {
-			std::cout << token << std::endl;
-		}*/
 	}
 	else {
 		tokens = split(input, ' ');
@@ -528,25 +498,23 @@ std::vector<ScoredResult> find_all_tokens(const std::string& input, const std::s
 
 	for (const std::string& token : tokens) {
 		unsigned char key = tolower(token[0]);
-		//std::cout << key << " -> ";
 		remove_diacritics(&key);
-		//std::cout << key << std::endl;
 
-		TreeNode* tn;
+		TreeNode* tree_node;
 
 		if (trie_cache->children.find(key) == trie_cache->children.end()) {
-			tn = deserialize_trie(TABLE_DIR + "/" + table + "/index/" + column + "/trie/" + std::to_string(key));
-			if (tn == nullptr) continue;
-			trie_cache->children[key] = tn;
+			tree_node = deserialize_trie(std::string(TABLE_DIR).append("/").append(table).append("/index/").append(column).append("/trie/").append(std::to_string(key)));
+			if (tree_node == nullptr) continue;
+			trie_cache->children[key] = tree_node;
 		}
 		else {
-			tn = trie_cache->children[key];
+			tree_node = trie_cache->children[key];
 		}
 
 		// Remove first letter
-		std::string subtoken = token.substr(1);
+		std::string sub_token = token.substr(1);
 
-		std::vector<int> retrieved = find_token(tn, subtoken);
+		std::vector<int> retrieved = find_token(tree_node, sub_token);
 		std::set<int> unique_retrieved(retrieved.begin(), retrieved.end());
 		for (int index : unique_retrieved) {
 			if (results.find(index) == results.end()) {
@@ -561,8 +529,8 @@ std::vector<ScoredResult> find_all_tokens(const std::string& input, const std::s
 	std::vector<ScoredResult> ret;
 	for (auto const& result : results) {
 		ret.push_back({
-			result.first,
-			(float)result.second
+							  result.first,
+							  (float)result.second
 			});
 	}
 	std::sort(ret.begin(), ret.end(), [](const ScoredResult& a, const ScoredResult& b) {
@@ -576,46 +544,49 @@ std::vector<ScoredResult> find_all_tokens(const std::string& input, const std::s
 void ff_search(const std::string& table, const std::string& column, const std::string& query, unsigned int limit = 100, bool fuzzy = false) {
 	std::cout << "Searching for '" << query << (fuzzy ? "~" : "") << "' in '" << table << ":" << column << "'" << std::endl;
 
-	auto findAllstart = high_resolution_clock::now();
+	auto start = high_resolution_clock::now();
 	auto results = find_all_tokens(query, table, column, fuzzy);
-	auto findAllstop = high_resolution_clock::now();
+	auto find_all_tokens_stop = high_resolution_clock::now();
 
-	auto findAllduration = duration_cast <milliseconds> (findAllstop - findAllstart);
+	auto find_all_tokens_duration = duration_cast <milliseconds> (find_all_tokens_stop - start);
 
 
-	std::string resultString = "";
+	std::string result_string;
 
-	if (results.size() > 0) {
+	if (!results.empty()) {
 		unsigned int itter = 0;
 
 		for (auto const& result : results) {
 
-			auto line = read_cache(table, result.index);
+			auto line = read_table(table, result.index);
 			auto obj = split(line, ',');
 
-			resultString += "    " + padd(obj[1], 24) + " (" + std::to_string(result.score) + ")    " + padd(obj[2], 12) + "    " + padd(obj[3], 24) + "    " + padd(obj[4], 24) + "    " + obj[0] + "\n";
+			result_string += "    " + pad_string(obj[1], 24) + " (" + std::to_string(result.score) + ")    " +
+				pad_string(obj[2], 12) + "    " +
+				pad_string(obj[3], 24) + "    " +
+				pad_string(obj[4], 24) + "    " + obj[0] + "\n";
 
 			++itter;
 
 			if (itter >= limit) {
-				resultString += "    ...\n";
+				result_string += "    ...\n";
 				break;
 			}
 		}
 	}
 
-	auto totalstop = high_resolution_clock::now();
-	auto totalduration = duration_cast <milliseconds> (totalstop - findAllstart);
+	auto total_stop = high_resolution_clock::now();
+	auto total_duration = duration_cast <milliseconds> (total_stop - start);
 
-	std::string resultStats = "Found " + std::to_string(results.size()) + " results in " + std::to_string(totalduration.count()) + "ms (index: " + std::to_string(findAllduration.count()) + "ms)";
+	std::string result_stats = "Found " + std::to_string(results.size()) + " results in " + std::to_string(total_duration.count()) + "ms (index: " + std::to_string(find_all_tokens_duration.count()) + "ms)";
 
-	std::cout << resultStats << "\n" << resultString << std::endl;
+	std::cout << result_stats << "\n" << result_string << std::endl;
 }
 
 void ff_search_end() {
 	// cleanup
-	for (auto const& page : pageMap) {
-		close_fast_file(page.second._fc);
+	for (auto const& page : loaded_page_map) {
+		close_fast_read(page.second._fc);
 	}
 	delete trie_cache;
 }
@@ -629,7 +600,7 @@ int main(int argc, char* argv[]) {
 	if (argc > 1) {
 		if (argv[1] == std::string("index")) {
 
-			std::string csv_file = "";
+			std::string csv_file;
 			std::set<std::string> columns;
 
 			for (int i = 1; i < argc; ++i) {
@@ -662,9 +633,9 @@ int main(int argc, char* argv[]) {
 		}
 		else if (argv[1] == std::string("search")) {
 
-			std::string table_name = "";
-			std::string column_name = "";
-			std::string search_query = "";
+			std::string table_name;
+			std::string column_name;
+			std::string search_query;
 			unsigned int limit = 10;
 			bool fuzzy = false;
 
@@ -702,7 +673,7 @@ int main(int argc, char* argv[]) {
 				}
 			}
 
-			if (table_name == "" || column_name == "" || search_query == "") {
+			if (table_name.empty() || column_name.empty() || search_query.empty()) {
 				std::cerr << "Error: Missing properties. Table name (-t), column name (-c) and search query (-s) have to be provided." << std::endl;
 				return 1;
 			}
@@ -714,13 +685,13 @@ int main(int argc, char* argv[]) {
 		}
 	}
 	else {
-		std::string userIn = "";
+		std::string user_in;
 		while (true) {
 			std::cout << "Waiting for input" << std::endl;
-			getline(std::cin, userIn);
+			getline(std::cin, user_in);
 
-			if (userIn == std::string("-x")) break;
-			ff_search("names", "full_name", userIn);
+			if (user_in == std::string("-x")) break;
+			ff_search("names", "full_name", user_in);
 		}
 		ff_search_end();
 	}
