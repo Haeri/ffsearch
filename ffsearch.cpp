@@ -341,18 +341,20 @@ void generate_table(const std::string& path, const std::vector<std::string>& tab
 		size_t max_row_size = 0;
 		size_t row_count = std::min(PAGE_SIZE, (int)table.size() - i * PAGE_SIZE);
 		for (int j = 0; j < row_count; ++j) {
-			if (table[j].size() > max_row_size) max_row_size = table[j].size();
+			size_t table_index = j + i * (size_t)PAGE_SIZE;
+			if (table[table_index].size() > max_row_size) max_row_size = table[table_index].size();
 		}
 		max_row_size += 1; // \0
 
 		char* chunks = new char[max_row_size * row_count]();
 
 		size_t offset = 0;
-		for (int j = 0; j < row_count; ++j) {
+		for (size_t j = 0; j < row_count; ++j) {
+			size_t table_index = j + i * (size_t)PAGE_SIZE;
 #ifdef _WIN32
-			strncat_s(chunks + offset, table[j].size() + 1, table[j].c_str(), max_row_size);
+			strncat_s(chunks + offset, table[table_index].size() + 1, table[table_index].c_str(), max_row_size);
 #else
-			strncat(chunks + offset, table[j].c_str(), max_row_size);
+			strncat(chunks + offset, table[table_index].c_str(), max_row_size);
 #endif
 			offset += max_row_size;
 		}
@@ -379,51 +381,55 @@ bool ff_index(const std::string& filename, const std::set<std::string>& columns)
 	std::vector<SchemaColumnIndex> schema_column_index;
 
 	std::string line;
+
 	std::ifstream scv_file(filename);
 	int line_index = 0;
 
-	if (scv_file.is_open()) {
-
-		// Get schema
-		getline(scv_file, line);
-		std::vector<std::string> schema = split(line, ',');
-
-		int schema_index = 0;
-		for (auto const& column : schema) {
-			if (columns.find(column) != columns.end()) {
-				schema_column_index.push_back({
-													  column,
-													  schema_index,
-													  new TreeNode
-					});
-			}
-			++schema_index;
-		}
-
-
-		while (getline(scv_file, line)) {
-
-			table.push_back(line);
-
-			for (auto const& index_column : schema_column_index) {
-				std::vector<std::string> row_elements = split(line, ',');
-				std::string element = to_lowercase(row_elements[index_column.index]);
-				std::vector<std::string> element_parts = split(element, ' ');
-				std::set<std::string> unique_element_parts(element_parts.begin(), element_parts.end());
-
-				for (auto const& unique_element_part : unique_element_parts) {
-					insert_token(index_column.root, unique_element_part, line_index);
-				}
-			}
-
-			++line_index;
-			if (line_index % 1000000 == 0) {
-				std::cout << "Indexing " << line_index << std::endl;
-				//break;
-			}
-		}
-		scv_file.close();
+	if (!scv_file.is_open()) {
+		std::cerr << "Error: Could not open the file " << filename << std::endl;
+		return false;
 	}
+
+	// Get schema
+	getline(scv_file, line);
+	std::vector<std::string> schema = split(line, ',');
+
+	int schema_index = 0;
+	for (auto const& column : schema) {
+		if (columns.find(column) != columns.end()) {
+			schema_column_index.push_back({
+				column,
+				schema_index,
+				new TreeNode
+				});
+		}
+		++schema_index;
+	}
+
+
+	while (getline(scv_file, line)) {
+
+		table.push_back(line);
+
+		for (auto const& index_column : schema_column_index) {
+			std::vector<std::string> row_elements = split(line, ',');
+			std::string element = to_lowercase(row_elements[index_column.index]);
+			std::vector<std::string> element_parts = split(element, ' ');
+			std::set<std::string> unique_element_parts(element_parts.begin(), element_parts.end());
+
+			for (auto const& unique_element_part : unique_element_parts) {
+				insert_token(index_column.root, unique_element_part, line_index);
+			}
+		}
+
+		++line_index;
+		if (line_index % 1000000 == 0) {
+			std::cout << "Indexing " << line_index << std::endl;
+			//break;
+		}
+	}
+	scv_file.close();
+
 
 	for (auto const& index_column : schema_column_index) {
 		std::string dir_name = table_path + "/index/" + index_column.column + "/trie/";
@@ -448,8 +454,6 @@ std::string read_table(const std::string& table, int index) {
 	TablePage table_page{};
 
 	if (loaded_page_map.find(page) == loaded_page_map.end()) {
-		auto start = high_resolution_clock::now();
-
 		table_page._fc = open_fast_read(TABLE_DIR + "/" + table + "/" + PAGE_PREFIX + std::to_string(page));
 
 		table_page.row_size = *((size_t*)table_page._fc.buffer);
