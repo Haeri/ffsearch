@@ -14,9 +14,11 @@ jobs:
     - name: Download Repository
       uses: actions/checkout@v3
     - name: Setup Environment
-      uses: seanmiddleditch/gha-setup-vsdevenv@v4
+      #uses: seanmiddleditch/gha-setup-vsdevenv@v4
+      run: | 
+        for /f "usebackq delims=#" %a in (`"%programfiles(x86)%\Microsoft Visual Studio\Installer\vswhere" -latest -property installationPath`) do set VsDevCmd_Path=%a\Common7\Tools\VsDevCmd.bat
     - name: Build
-      run: cl.exe /EHsc /O2 /std:c++17 /Fe:ffsearch.exe .\ffsearch.cpp
+      run: "%VsDevCmd_Path%" && cl.exe /EHsc /GS /GL /Gy /Gm- /O2 /Oi /MD /sdl /std:c++17 /Fe:ffsearch.exe .\ffsearch.cpp
     - name: Test
       run: |
         .\ffsearch.exe index -f ".\test\names.csv" -c "full_name,nationality"
