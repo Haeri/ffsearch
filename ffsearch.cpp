@@ -21,6 +21,9 @@
 #include <unistd.h>
 #endif
 
+#include "unidecode.h"
+
+
 #define PAGE_SIZE 1000000
 
 namespace fs = std::filesystem;
@@ -190,15 +193,38 @@ std::string to_lowercase(const std::string& s) {
 	return result;
 }
 
-void remove_diacritics(unsigned char* p) {
-	const char*
-		//   "ÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖ×ØÙÚÛÜÝÞßàáâãäåæçèéêëìíîïðñòóôõö÷øùúûüýþÿ"
-		tr = "AAAAAAECEEEEIIIIDNOOOOOx0UUUUYPsaaaaaaeceeeeiiiiOnooooo/0uuuuypy";
-	unsigned char ch = (*p);
-	if (ch >= 192) {
-		(*p) = tr[ch - 192];
+std::string normalize_string(const std::string& text) {
+	std::string output;
+	std::string tmp;
+
+	// UTF8 -> ASCII
+	unidecode::Utf8StringIterator begin = text.c_str();
+	unidecode::Utf8StringIterator end = text.c_str() + strlen(text.c_str());
+	unidecode::Unidecode(begin, end, std::back_inserter(tmp));
+
+	// Lowercase
+	tmp = to_lowercase(tmp);
+
+	for (const auto& c : tmp) {
+		// Special Character to Whitespace
+		if (c == ' ' || c == '-' || c == '+' || c == '@' || c == '\'' || c == '`') {
+			output += ' ';
+		}
+		// keep [a-Z0-9]
+		else if ((c >= 97 && c <= 122) || (c >= 48 && c <= 57)) {
+			output += c;
+		}
+		else {
+			if (c != '\'')
+				std::cout << "Remove " << c << " from " << text << " -> " << tmp << " -> " << output << std::endl;
+		}
 	}
+
+	return output;
 }
+
+
+
 
 
 void serialize_node(TreeNode* node, std::ofstream& outfile)
@@ -250,6 +276,7 @@ void deserialize_node(TreeNode* node, std::ifstream& infile)
 	for (size_t i = 0; i < num_children; i++) {
 		unsigned char key;
 		infile.read(reinterpret_cast<char*>(&key), sizeof(key));
+
 		auto* child = new TreeNode();
 		node->children[key] = child;
 		deserialize_node(child, infile);
@@ -276,8 +303,7 @@ void insert_token(TreeNode* root, const std::string& token, int index)
 
 	for (const char& i : token) {
 		TreeNode* tn;
-		unsigned char key = tolower(i);
-		remove_diacritics(&key);
+		unsigned char key = i;
 
 		if (tnp->children.find(key) == tnp->children.end()) {
 			tn = new TreeNode();
@@ -298,8 +324,7 @@ std::vector<int> find_token(TreeNode* root, const std::string& token)
 	std::vector<int> ret;
 
 	for (int i = 0; i < token.size(); ++i) {
-		unsigned char key = tolower(token[i]);
-		remove_diacritics(&key);
+		unsigned char key = token[i];
 
 		if (key == SINGLE_WILDCARD) {
 			for (auto const& child : tnp->children) {
@@ -410,10 +435,11 @@ bool ff_index(const std::string& filename, const std::set<std::string>& columns)
 	while (getline(scv_file, line)) {
 
 		table.push_back(line);
+		std::vector<std::string> row_elements = split(line, ',');
 
 		for (auto const& index_column : schema_column_index) {
-			std::vector<std::string> row_elements = split(line, ',');
-			std::string element = to_lowercase(row_elements[index_column.index]);
+
+			std::string element = normalize_string(row_elements[index_column.index]);
 			std::vector<std::string> element_parts = split(element, ' ');
 			std::set<std::string> unique_element_parts(element_parts.begin(), element_parts.end());
 
@@ -476,8 +502,10 @@ std::vector<ScoredResult> find_all_tokens(const std::string& input, const std::s
 	std::unordered_map<int, int> results;
 	std::vector<std::string> tokens;
 
+	std::string normalized_input = normalize_string(input);
+
 	if (fuzzy) {
-		std::vector<std::string> _tokens = split(input, ' ');
+		std::vector<std::string> _tokens = split(normalized_input, ' ');
 
 		for (const std::string& token : _tokens) {
 			tokens.push_back(token);
@@ -496,13 +524,12 @@ std::vector<ScoredResult> find_all_tokens(const std::string& input, const std::s
 		}
 	}
 	else {
-		tokens = split(input, ' ');
+		tokens = split(normalized_input, ' ');
 	}
 
 
 	for (const std::string& token : tokens) {
-		unsigned char key = tolower(token[0]);
-		remove_diacritics(&key);
+		unsigned char key = token[0];
 
 		TreeNode* tree_node;
 
@@ -533,8 +560,8 @@ std::vector<ScoredResult> find_all_tokens(const std::string& input, const std::s
 	std::vector<ScoredResult> ret;
 	for (auto const& result : results) {
 		ret.push_back({
-							  result.first,
-							  (float)result.second
+				result.first,
+				(float)result.second
 			});
 	}
 	std::sort(ret.begin(), ret.end(), [](const ScoredResult& a, const ScoredResult& b) {
@@ -596,10 +623,20 @@ void ff_search_end() {
 }
 
 
+void ff_insert(const std::string& table, const std::set<std::string>& columns) {
+
+
+}
+
 
 
 
 int main(int argc, char* argv[]) {
+
+#ifdef _WIN32
+	SetConsoleOutputCP(65001);
+#endif
+
 
 	if (argc > 1) {
 		if (argv[1] == std::string("index")) {
