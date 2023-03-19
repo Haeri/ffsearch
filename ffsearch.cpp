@@ -10,6 +10,9 @@
 #include <chrono>
 #include <filesystem>
 #include <string_view>
+#include <thread>
+#include <mutex>
+
 
 #ifdef _WIN32
 #define NOMINMAX
@@ -318,43 +321,7 @@ void insert_token(TreeNode* root, const std::string& token, int index)
 	tnp->index.push_back(index);
 }
 
-std::vector<int> find_token(TreeNode* root, const std::string& token)
-{
-	TreeNode* tnp = root;
-	std::vector<int> ret;
 
-	for (int i = 0; i < token.size(); ++i) {
-		unsigned char key = token[i];
-
-		if (key == SINGLE_WILDCARD) {
-			for (auto const& child : tnp->children) {
-				auto tmp = find_token(child.second, token.substr(i + 1));
-				ret.insert(ret.end(), tmp.begin(), tmp.end());
-			}
-			return { ret.begin(), ret.end() };
-		}
-		else if (key == MULTI_WILDCARD) {
-			for (auto const& child : tnp->children) {
-				auto tmp = find_token(child.second, SINGLE_WILDCARD + token.substr(i + 1));
-				ret.insert(ret.end(), tmp.begin(), tmp.end());
-
-				tmp = find_token(child.second, MULTI_WILDCARD + token.substr(i + 1));
-				ret.insert(ret.end(), tmp.begin(), tmp.end());
-			}
-			return  { ret.begin(), ret.end() };
-		}
-		else if (tnp->children.find(key) == tnp->children.end()) {
-			return {};
-		}
-		else {
-			tnp = tnp->children[key];
-		}
-	}
-
-	ret.insert(ret.end(), tnp->index.begin(), tnp->index.end());
-
-	return ret;
-}
 
 
 
@@ -449,9 +416,8 @@ bool ff_index(const std::string& filename, const std::set<std::string>& columns)
 		}
 
 		++line_index;
-		if (line_index % 1000000 == 0) {
+		if (line_index % PAGE_SIZE == 0) {
 			std::cout << "Indexing " << line_index << std::endl;
-			//break;
 		}
 	}
 	scv_file.close();
@@ -494,8 +460,109 @@ std::string read_table(const std::string& table, int index) {
 
 	return { table_page.buffer + (line * table_page.row_size) }; // , tp.row_size);
 }
+std::vector<int> find_token(TreeNode* root, const std::string& token)
+{
+	TreeNode* tnp = root;
+	std::vector<int> ret;
 
-std::vector<ScoredResult> find_all_tokens(const std::string& input, const std::string& table, const std::string& column, bool fuzzy) {
+	for (int i = 0; i < token.size(); ++i) {
+		unsigned char key = token[i];
+
+		if (key == SINGLE_WILDCARD) {
+			for (auto const& child : tnp->children) {
+				auto tmp = find_token(child.second, token.substr(i + 1));
+				ret.insert(ret.end(), tmp.begin(), tmp.end());
+			}
+			return { ret.begin(), ret.end() };
+		}
+		else if (key == MULTI_WILDCARD) {
+			for (auto const& child : tnp->children) {
+				auto tmp = find_token(child.second, SINGLE_WILDCARD + token.substr(i + 1));
+				ret.insert(ret.end(), tmp.begin(), tmp.end());
+
+				tmp = find_token(child.second, MULTI_WILDCARD + token.substr(i + 1));
+				ret.insert(ret.end(), tmp.begin(), tmp.end());
+			}
+			return  { ret.begin(), ret.end() };
+		}
+		else if (tnp->children.find(key) == tnp->children.end()) {
+			return {};
+		}
+		else {
+			tnp = tnp->children[key];
+		}
+	}
+
+	ret.insert(ret.end(), tnp->index.begin(), tnp->index.end());
+
+	return ret;
+}
+
+
+std::vector<int> find_token_root(const std::string& table, const std::string& column, const std::string& token) {
+	TreeNode* tree_node;
+
+	unsigned char key = token[0];
+	if (trie_cache->children.find(key) == trie_cache->children.end()) {
+		tree_node = deserialize_trie(std::string(TABLE_DIR).append("/").append(table).append("/index/").append(column).append("/trie/").append(std::to_string(key)));
+		if (tree_node == nullptr) return{};
+		trie_cache->children[key] = tree_node;
+	}
+	else {
+		tree_node = trie_cache->children[key];
+	}
+
+	// Remove first letter
+	std::string sub_token = token.substr(1);
+
+	return find_token(tree_node, sub_token);
+}
+
+void find_one_token(const std::string& table, const std::string& column, const std::string& token, bool fuzzy, std::unordered_map<int, int>& results, std::mutex& resultsMutex) {
+	std::vector<int> retrieved;
+	if (fuzzy) {
+		std::vector<std::string> fuzzy_tokens;
+
+		fuzzy_tokens.push_back(token);
+		for (int i = 0; i < token.size(); ++i) {
+			fuzzy_tokens.push_back(token.substr(0, i) + "?" + token.substr(i)); // INSERTION
+			fuzzy_tokens.push_back(token.substr(0, i) + token.substr(i + 1)); // DELETION
+			fuzzy_tokens.push_back(token.substr(0, i) + "?" + token.substr(i + 1)); // SUBSTITUTION
+
+			if (i < token.size() - 1) { // TRANSPOSITION
+				std::string cpy(token);
+				std::swap(cpy[i], cpy[i + 1]);
+				fuzzy_tokens.push_back(cpy);
+			}
+		}
+		fuzzy_tokens.push_back(token + "?");
+
+		for (auto const& t : fuzzy_tokens) {
+			auto tmp = find_token_root(table, column, token);
+			retrieved.insert(retrieved.begin(), tmp.begin(), tmp.end());
+		}
+	}
+	else {
+		auto tmp = find_token_root(table, column, token);
+		retrieved.insert(retrieved.begin(), tmp.begin(), tmp.end());
+	}
+
+
+	std::set<int> unique_retrieved(retrieved.begin(), retrieved.end());
+
+	std::lock_guard<std::mutex> lock(resultsMutex);
+	for (int index : unique_retrieved) {
+		if (results.find(index) == results.end()) {
+			results[index] = 1;
+		}
+		else {
+			results[index] = results[index] + 1;
+		}
+	}
+
+}
+
+std::vector<ScoredResult> find_all_tokens(const std::string& table, const std::string& column, const std::string& input, bool and_op, bool fuzzy) {
 	if (trie_cache == nullptr)
 		trie_cache = new TreeNode;
 
@@ -504,79 +571,49 @@ std::vector<ScoredResult> find_all_tokens(const std::string& input, const std::s
 
 	std::string normalized_input = normalize_string(input);
 
-	if (fuzzy) {
-		std::vector<std::string> _tokens = split(normalized_input, ' ');
+	tokens = split(normalized_input, ' ');
 
-		for (const std::string& token : _tokens) {
-			tokens.push_back(token);
-			for (int i = 0; i < token.size(); ++i) {
-				tokens.push_back(token.substr(0, i) + "?" + token.substr(i)); // INSERTION
-				tokens.push_back(token.substr(0, i) + token.substr(i + 1)); // DELETION
-				tokens.push_back(token.substr(0, i) + "?" + token.substr(i + 1)); // SUBSTITUTION
-
-				if (i < token.size() - 1) { // TRANSPOSITION
-					std::string cpy(token);
-					std::swap(cpy[i], cpy[i + 1]);
-					tokens.push_back(cpy);
-				}
-			}
-			tokens.push_back(token + "?");
-		}
-	}
-	else {
-		tokens = split(normalized_input, ' ');
-	}
-
-
+	std::mutex resultsMutex;
+	std::vector<std::thread> threads;
 	for (const std::string& token : tokens) {
-		unsigned char key = token[0];
-
-		TreeNode* tree_node;
-
-		if (trie_cache->children.find(key) == trie_cache->children.end()) {
-			tree_node = deserialize_trie(std::string(TABLE_DIR).append("/").append(table).append("/index/").append(column).append("/trie/").append(std::to_string(key)));
-			if (tree_node == nullptr) continue;
-			trie_cache->children[key] = tree_node;
-		}
-		else {
-			tree_node = trie_cache->children[key];
-		}
-
-		// Remove first letter
-		std::string sub_token = token.substr(1);
-
-		std::vector<int> retrieved = find_token(tree_node, sub_token);
-		std::set<int> unique_retrieved(retrieved.begin(), retrieved.end());
-		for (int index : unique_retrieved) {
-			if (results.find(index) == results.end()) {
-				results[index] = 1;
-			}
-			else {
-				results[index] = results[index] + 1;
-			}
-		}
+		threads.push_back(std::thread(find_one_token, table, column, token, fuzzy, std::ref(results), std::ref(resultsMutex)));
+	}
+	for (auto& t : threads) {
+		t.join();
 	}
 
 	std::vector<ScoredResult> ret;
 	for (auto const& result : results) {
 		ret.push_back({
-				result.first,
-				(float)result.second
+			result.first,
+			(float)result.second
 			});
 	}
 	std::sort(ret.begin(), ret.end(), [](const ScoredResult& a, const ScoredResult& b) {
 		return a.score > b.score;
 		});
 
+
+	if (and_op) {
+		auto iter = std::find_if_not(ret.begin(), ret.end(), [&tokens](const ScoredResult& a) {
+			return a.score >= tokens.size();
+			});
+
+		if (iter != ret.end())
+		{
+			return std::vector<ScoredResult>(ret.begin(), iter);
+		}
+	}
+
 	return ret;
 }
 
 
-void ff_search(const std::string& table, const std::string& column, const std::string& query, unsigned int limit = 100, bool fuzzy = false) {
+void ff_search(const std::string& table, const std::string& column, const std::string& query, unsigned int limit = 100, bool and_op = false, bool fuzzy = false) {
 	std::cout << "Searching for '" << query << (fuzzy ? "~" : "") << "' in '" << table << ":" << column << "'" << std::endl;
 
 	auto start = high_resolution_clock::now();
-	auto results = find_all_tokens(query, table, column, fuzzy);
+	auto results = find_all_tokens(table, column, query, and_op, fuzzy);
 	auto find_all_tokens_stop = high_resolution_clock::now();
 
 	auto find_all_tokens_duration = duration_cast <milliseconds> (find_all_tokens_stop - start);
@@ -585,7 +622,7 @@ void ff_search(const std::string& table, const std::string& column, const std::s
 	std::string result_string;
 
 	if (!results.empty()) {
-		unsigned int itter = 0;
+		unsigned int iter = 0;
 
 		for (auto const& result : results) {
 
@@ -597,9 +634,9 @@ void ff_search(const std::string& table, const std::string& column, const std::s
 				pad_string(obj[3], 24) + "    " +
 				pad_string(obj[4], 24) + "    " + obj[0] + "\n";
 
-			++itter;
+			++iter;
 
-			if (itter >= limit) {
+			if (iter >= limit) {
 				result_string += "    ...\n";
 				break;
 			}
@@ -622,9 +659,30 @@ void ff_search_end() {
 	delete trie_cache;
 }
 
+std::string get_latst_page(const std::string& table)
+{
+	int highestPageNum = -1;
+	std::string highestPageFile = "";
 
-void ff_insert(const std::string& table, const std::set<std::string>& columns) {
+	for (const auto& entry : std::filesystem::directory_iterator(TABLE_DIR + "/" + table))
+	{
+		if (entry.is_regular_file() && entry.path().filename().string().substr(0, 5) == "page_")
+		{
+			std::string filename = entry.path().filename().string();
+			int pageNum = std::stoi(filename.substr(5));
+			if (pageNum > highestPageNum)
+			{
+				highestPageNum = pageNum;
+				highestPageFile = filename;
+			}
+		}
+	}
 
+	return highestPageFile;
+}
+
+void ff_insert(const std::string& table, const std::string& value) {
+	auto page = get_latst_page(table);
 
 }
 
@@ -636,7 +694,6 @@ int main(int argc, char* argv[]) {
 #ifdef _WIN32
 	SetConsoleOutputCP(65001);
 #endif
-
 
 	if (argc > 1) {
 		if (argv[1] == std::string("index")) {
@@ -664,13 +721,42 @@ int main(int argc, char* argv[]) {
 
 
 			if (ff_index(csv_file, columns)) {
-				std::cout << "Indexing sucessfully created" << std::endl;
+				std::cout << "Index successfully created" << std::endl;
 			}
 			else {
 				std::cerr << "Indexing failed!" << std::endl;
 			}
 
 			return 0;
+		}
+		else if (argv[1] == std::string("insert")) {
+			std::string table_name;
+			std::string value;
+
+			for (int i = 1; i < argc; ++i) {
+				if (argv[i] == std::string("-t")) {
+					if (i + 1 > argc - 1) {
+						std::cerr << "Error: no table name provided after -t flag" << std::endl;
+						return 1;
+					}
+					table_name = argv[i + 1];
+				}
+				else if (argv[i] == std::string("-v")) {
+					if (i + 1 > argc - 1) {
+						std::cerr << "Error: no value provided after -v flag" << std::endl;
+						return 1;
+					}
+					value = argv[i + 1];
+				}
+			}
+
+			if (table_name.empty() || value.empty()) {
+				std::cerr << "Error: Missing properties. Table name (-t) and value (-v) have to be provided." << std::endl;
+				return 1;
+			}
+
+			ff_insert(table_name, value);
+
 		}
 		else if (argv[1] == std::string("search")) {
 
@@ -679,6 +765,7 @@ int main(int argc, char* argv[]) {
 			std::string search_query;
 			unsigned int limit = 10;
 			bool fuzzy = false;
+			bool and_op = false;
 
 			for (int i = 1; i < argc; ++i) {
 				if (argv[i] == std::string("-t")) {
@@ -709,6 +796,9 @@ int main(int argc, char* argv[]) {
 					}
 					limit = std::stoi(argv[i + 1]);
 				}
+				else if (argv[i] == std::string("-a")) {
+					and_op = true;
+				}
 				else if (argv[i] == std::string("-f")) {
 					fuzzy = true;
 				}
@@ -719,7 +809,7 @@ int main(int argc, char* argv[]) {
 				return 1;
 			}
 
-			ff_search(table_name, column_name, search_query, limit, fuzzy);
+			ff_search(table_name, column_name, search_query, limit, and_op, fuzzy);
 			ff_search_end();
 
 			return 0;
