@@ -537,8 +537,8 @@ void find_one_token(const std::string& table, const std::string& column, const s
 		}
 		fuzzy_tokens.push_back(token + "?");
 
-		for (auto const& t : fuzzy_tokens) {
-			auto tmp = find_token_root(table, column, token);
+		for (auto const& fuzzy_token : fuzzy_tokens) {
+			auto tmp = find_token_root(table, column, fuzzy_token);
 			retrieved.insert(retrieved.begin(), tmp.begin(), tmp.end());
 		}
 	}
@@ -576,7 +576,7 @@ std::vector<ScoredResult> find_all_tokens(const std::string& table, const std::s
 	std::mutex resultsMutex;
 	std::vector<std::thread> threads;
 	for (const std::string& token : tokens) {
-		threads.push_back(std::thread(find_one_token, table, column, token, fuzzy, std::ref(results), std::ref(resultsMutex)));
+		threads.emplace_back(find_one_token, table, column, token, fuzzy, std::ref(results), std::ref(resultsMutex));
 	}
 	for (auto& t : threads) {
 		t.join();
@@ -596,12 +596,12 @@ std::vector<ScoredResult> find_all_tokens(const std::string& table, const std::s
 
 	if (and_op) {
 		auto iter = std::find_if_not(ret.begin(), ret.end(), [&tokens](const ScoredResult& a) {
-			return a.score >= tokens.size();
+			return a.score >= (float)tokens.size();
 			});
 
 		if (iter != ret.end())
 		{
-			return std::vector<ScoredResult>(ret.begin(), iter);
+			return { ret.begin(), iter };
 		}
 	}
 
