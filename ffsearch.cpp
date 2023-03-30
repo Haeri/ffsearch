@@ -218,8 +218,8 @@ std::string normalize_string(const std::string& text) {
 			output += c;
 		}
 		else {
-			if (c != '\'')
-				std::cout << "Remove " << c << " from " << text << " -> " << tmp << " -> " << output << std::endl;
+			//if (c != '\'')
+			//	std::cout << "Remove " << c << " from " << text << " -> " << tmp << " -> " << output << std::endl;
 		}
 	}
 
@@ -618,28 +618,48 @@ void ff_search(const std::string& table, const std::string& column, const std::s
 
 	auto find_all_tokens_duration = duration_cast <milliseconds> (find_all_tokens_stop - start);
 
-
 	std::string result_string;
+	std::vector<std::vector<std::string>> column_table;
+	std::vector<int> column_size;
 
 	if (!results.empty()) {
-		unsigned int iter = 0;
+		column_table.reserve(results.size());
 
 		for (auto const& result : results) {
 
 			auto line = read_table(table, result.index);
 			auto obj = split(line, ',');
+			obj.push_back(std::to_string(result.score));
 
-			result_string += "    " + pad_string(obj[1], 24) + " (" + std::to_string(result.score) + ")    " +
-				pad_string(obj[2], 12) + "    " +
-				pad_string(obj[3], 24) + "    " +
-				pad_string(obj[4], 24) + "    " + obj[0] + "\n";
+			if (column_size.empty()) {
+				column_size.resize(obj.size(), 0);
+			}
 
-			++iter;
+			int i = 0;
+			for (auto const& c : obj) {
+				column_size[i] = std::max(column_size[i], static_cast<int>(c.size()));
+				++i;
+			}
 
-			if (iter >= limit) {
-				result_string += "    ...\n";
+			column_table.push_back(std::move(obj));
+
+			if (column_table.size() >= limit) {
 				break;
 			}
+		}
+
+		for (auto const& row : column_table) {
+			int i = 0;
+			for (auto const& col : row) {
+				std::string tmp(col);
+				result_string += pad_string(tmp, std::min(50, column_size[i] + 1)) + " | ";
+				++i;
+			}
+			result_string += "\n";
+		}
+
+		if (results.size() > limit) {
+			result_string += "...\n";
 		}
 	}
 
@@ -683,7 +703,6 @@ std::string get_latst_page(const std::string& table)
 
 void ff_insert(const std::string& table, const std::string& value) {
 	auto page = get_latst_page(table);
-
 }
 
 
