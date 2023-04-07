@@ -178,9 +178,33 @@ std::vector<std::string> split(const std::string& input, const char& delimiter)
 	return elements;
 }
 
+size_t utf8_strlen(const std::string& utf8_string) {
+	size_t length = 0;
+	for (size_t i = 0; i < utf8_string.length(); ) {
+		unsigned char c = utf8_string[i];
+		if (c < 0x80) { // ASCII character
+			length++;
+			i++;
+		}
+		else if (c < 0xE0) { // 2-byte sequence
+			length++;
+			i += 2;
+		}
+		else if (c < 0xF0) { // 3-byte sequence
+			length++;
+			i += 3;
+		}
+		else { // 4-byte sequence
+			length++;
+			i += 4;
+		}
+	}
+	return length;
+}
+
 std::string& pad_string(std::string& text, int size) {
-	if (text.size() < size) {
-		text.insert(text.end(), size - text.size(), ' ');
+	if (utf8_strlen(text) < size) {
+		text.insert(text.end(), size - utf8_strlen(text), ' ');
 	}
 	else {
 		text.replace(size - 3, 3, "...");
@@ -518,8 +542,7 @@ std::vector<int> find_token_root(const std::string& table, const std::string& co
 	return find_token(tree_node, sub_token);
 }
 
-void find_one_token(const std::string& table, const std::string& column, const std::string& token, bool fuzzy, std::unordered_map<int, int>& results, std::mutex& resultsMutex) {
-	std::vector<int> retrieved;
+void find_one_token(const std::string& table, const std::string& column, const std::string& token, bool fuzzy, std::vector<int>& results) {
 	if (fuzzy) {
 		std::vector<std::string> fuzzy_tokens;
 
@@ -539,33 +562,22 @@ void find_one_token(const std::string& table, const std::string& column, const s
 
 		for (auto const& fuzzy_token : fuzzy_tokens) {
 			auto tmp = find_token_root(table, column, fuzzy_token);
-			retrieved.insert(retrieved.begin(), tmp.begin(), tmp.end());
+			results.insert(results.begin(), tmp.begin(), tmp.end());
+			std::sort(results.begin(), results.end());
+			results.erase(std::unique(results.begin(), results.end()), results.end());
 		}
 	}
 	else {
-		auto tmp = find_token_root(table, column, token);
-		retrieved.insert(retrieved.begin(), tmp.begin(), tmp.end());
+
+		results = find_token_root(table, column, token);
 	}
-
-
-	std::set<int> unique_retrieved(retrieved.begin(), retrieved.end());
-
-	std::lock_guard<std::mutex> lock(resultsMutex);
-	for (int index : unique_retrieved) {
-		if (results.find(index) == results.end()) {
-			results[index] = 1;
-		}
-		else {
-			results[index] = results[index] + 1;
-		}
-	}
-
 }
 
 std::vector<ScoredResult> find_all_tokens(const std::string& table, const std::string& column, const std::string& input, bool and_op, bool fuzzy) {
 	if (trie_cache == nullptr)
 		trie_cache = new TreeNode;
 
+	std::vector<std::vector<int>> thread_results;
 	std::unordered_map<int, int> results;
 	std::vector<std::string> tokens;
 
@@ -573,37 +585,44 @@ std::vector<ScoredResult> find_all_tokens(const std::string& table, const std::s
 
 	tokens = split(normalized_input, ' ');
 
+	thread_results.reserve(tokens.size());
+
 	std::mutex resultsMutex;
 	std::vector<std::thread> threads;
+	int i = 0;
 	for (const std::string& token : tokens) {
-		threads.emplace_back(find_one_token, table, column, token, fuzzy, std::ref(results), std::ref(resultsMutex));
+		thread_results.push_back({});
+		threads.emplace_back(find_one_token, table, column, token, fuzzy, std::ref(thread_results[i]));
+		++i;
 	}
 	for (auto& t : threads) {
 		t.join();
 	}
 
+	for (auto const& results_arr : thread_results) {
+		for (int index : results_arr) {
+			if (results.find(index) == results.end()) {
+				results[index] = 1;
+			}
+			else {
+				results[index] = results[index] + 1;
+			}
+		}
+	}
+
+
 	std::vector<ScoredResult> ret;
-	for (auto const& result : results) {
+	for (auto const& [index, score] : results) {
+		if (and_op&& score < tokens.size()) continue;
+
 		ret.push_back({
-			result.first,
-			(float)result.second
+			index,
+			(float)score
 			});
 	}
 	std::sort(ret.begin(), ret.end(), [](const ScoredResult& a, const ScoredResult& b) {
 		return a.score > b.score;
 		});
-
-
-	if (and_op) {
-		auto iter = std::find_if_not(ret.begin(), ret.end(), [&tokens](const ScoredResult& a) {
-			return a.score >= (float)tokens.size();
-			});
-
-		if (iter != ret.end())
-		{
-			return { ret.begin(), iter };
-		}
-	}
 
 	return ret;
 }
@@ -738,6 +757,10 @@ int main(int argc, char* argv[]) {
 				}
 			}
 
+			if (csv_file.empty() || columns.empty()) {
+				std::cerr << "Error: Missing properties. File name (-f) and column names (-c) have to be provided." << std::endl;
+				return 1;
+			}
 
 			if (ff_index(csv_file, columns)) {
 				std::cout << "Index successfully created" << std::endl;
@@ -745,8 +768,6 @@ int main(int argc, char* argv[]) {
 			else {
 				std::cerr << "Indexing failed!" << std::endl;
 			}
-
-			return 0;
 		}
 		else if (argv[1] == std::string("insert")) {
 			std::string table_name;
@@ -785,6 +806,7 @@ int main(int argc, char* argv[]) {
 			unsigned int limit = 10;
 			bool fuzzy = false;
 			bool and_op = false;
+			bool interactive = false;
 
 			for (int i = 1; i < argc; ++i) {
 				if (argv[i] == std::string("-t")) {
@@ -821,32 +843,40 @@ int main(int argc, char* argv[]) {
 				else if (argv[i] == std::string("-f")) {
 					fuzzy = true;
 				}
+				else if (argv[i] == std::string("-i")) {
+					interactive = true;
+				}
 			}
 
-			if (table_name.empty() || column_name.empty() || search_query.empty()) {
+			if (table_name.empty() || column_name.empty() || (!interactive && search_query.empty())) {
 				std::cerr << "Error: Missing properties. Table name (-t), column name (-c) and search query (-s) have to be provided." << std::endl;
 				return 1;
 			}
 
-			ff_search(table_name, column_name, search_query, limit, and_op, fuzzy);
-			ff_search_end();
+			if (interactive) {
+				std::string user_in;
+				while (true) {
+					std::cout << "Waiting for input" << std::endl;
+					getline(std::cin, user_in);
 
-			return 0;
+					if (user_in == std::string("-x")) break;
+					ff_search(table_name, column_name, user_in, limit, and_op, fuzzy);
+				}
+			}
+			else {
+				ff_search(table_name, column_name, search_query, limit, and_op, fuzzy);
+			}
+			ff_search_end();
+		}
+		else {
+			std::cout << "No mode provided\n";
 		}
 	}
 	else {
-		std::string user_in;
-		while (true) {
-			std::cout << "Waiting for input" << std::endl;
-			getline(std::cin, user_in);
-
-			if (user_in == std::string("-x")) break;
-			ff_search("names", "full_name", user_in);
-		}
-		ff_search_end();
+		std::cout << "Not enought arguments provided\n";
 	}
 
 
-	std::cout << "Done\n";
+	std::cout << "Done" << std::endl;
 	return 0;
 }
