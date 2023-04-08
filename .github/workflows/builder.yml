@@ -21,9 +21,13 @@ jobs:
     - name: Build
       run: |
         cl.exe /EHsc /GS /GL /Gy /Gm- /O2 /Oi /MD /sdl /std:c++17 /Fe:ffsearch.exe .\ffsearch.cpp
-    - name: Test
+    - name: Test Index
       run: |
         .\ffsearch.exe index -f ".\test\names.csv" -c "full_name,nationality"
+    - name: Test Search
+      run: |
+        .\ffsearch.exe search -t "names" -c "full_name" -s "Nova Gatsby" -l 30 -f
+        .\ffsearch.exe search -t "names" -c "full_name" -s "Nova Gatsby" -l 30 -f
         .\ffsearch.exe search -t "names" -c "full_name" -s "Nova Gatsby" -l 30 -f
     - name: Upload
       uses: actions/upload-artifact@v3
@@ -39,10 +43,14 @@ jobs:
       uses: actions/checkout@v3
     - name: Build
       run: g++ -std=c++17 ffsearch.cpp -o ffsearch -O3
-    - name: Test
+    - name: Test Index
       run: |
-        ./ffsearch index -f "./test/names.csv" -c "full_name,nationality"
-        ./ffsearch search -t "names" -c "full_name" -s "Nova Gatsby" -l 30 -f
+        .\ffsearch.exe index -f ".\test\names.csv" -c "full_name,nationality"
+    - name: Test Search
+      run: |
+        .\ffsearch.exe search -t "names" -c "full_name" -s "Nova Gatsby" -l 30 -f
+        .\ffsearch.exe search -t "names" -c "full_name" -s "Nova Gatsby" -l 30 -f
+        .\ffsearch.exe search -t "names" -c "full_name" -s "Nova Gatsby" -l 30 -f
     - name: Upload
       uses: actions/upload-artifact@v3
       with:
@@ -57,10 +65,14 @@ jobs:
       uses: actions/checkout@v3
     - name: Build
       run: g++ -std=c++17 ffsearch.cpp -o ffsearch -O3
-    - name: Test
+    - name: Test Index
       run: |
-        ./ffsearch index -f "./test/names.csv" -c "full_name,nationality"
-        ./ffsearch search -t "names" -c "full_name" -s "Nova Gatsby" -l 30 -f
+        .\ffsearch.exe index -f ".\test\names.csv" -c "full_name,nationality"
+    - name: Test Search
+      run: |
+        .\ffsearch.exe search -t "names" -c "full_name" -s "Nova Gatsby" -l 30 -f
+        .\ffsearch.exe search -t "names" -c "full_name" -s "Nova Gatsby" -l 30 -f
+        .\ffsearch.exe search -t "names" -c "full_name" -s "Nova Gatsby" -l 30 -f
     - name: Upload
       uses: actions/upload-artifact@v3
       with:

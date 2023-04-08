@@ -527,6 +527,7 @@ std::vector<int> find_token_root(const std::string& table, const std::string& co
 	TreeNode* tree_node;
 
 	unsigned char key = token[0];
+	if (key == SINGLE_WILDCARD ||  key == MULTI_WILDCARD) return {}; // skip wildcard prefix for now
 	if (trie_cache->children.find(key) == trie_cache->children.end()) {
 		tree_node = deserialize_trie(std::string(TABLE_DIR).append("/").append(table).append("/index/").append(column).append("/trie/").append(std::to_string(key)));
 		if (tree_node == nullptr) return{};
