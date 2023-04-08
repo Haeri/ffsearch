@@ -23,8 +23,9 @@ jobs:
         cl.exe /EHsc /GS /GL /Gy /Gm- /O2 /Oi /MD /sdl /std:c++17 /Fe:ffsearch.exe .\ffsearch.cpp
     - name: Generate Test
       run: |
-        cl.exe /EHsc /GS /GL /Gy /Gm- /O2 /Oi /MD /sdl /std:c++17 /Fe:.\test\table_generator.exe .\test\table_generator.cpp
-        .\test\table_generator.exe
+        cd test
+        cl.exe /EHsc /GS /GL /Gy /Gm- /O2 /Oi /MD /sdl /std:c++17 /Fe:.\table_generator.exe .\table_generator.cpp
+        .\table_generator.exe
     - name: Test Index
       run: .\ffsearch.exe index -f ".\test\names.csv" -c "full_name,nationality"
     - name: Test Search
@@ -48,8 +49,9 @@ jobs:
       run: g++ -std=c++17 ffsearch.cpp -o ffsearch -O3
     - name: Generate Test
       run: |
-        g++ -std=c++17 ./test/table_generator.cpp -o ./test/table_generator -O3
-        ./test/table_generator
+        cd test
+        g++ -std=c++17 ./table_generator.cpp -o ./table_generator -O3
+        ./table_generator
     - name: Test Index
       run: ./ffsearch index -f "./test/names.csv" -c "full_name,nationality"
     - name: Test Search
@@ -73,8 +75,9 @@ jobs:
       run: g++ -std=c++17 ffsearch.cpp -o ffsearch -O3
     - name: Generate Test
       run: |
-        g++ -std=c++17 ./test/table_generator.cpp -o ./test/table_generator -O3
-        ./test/table_generator
+        cd test
+        g++ -std=c++17 ./table_generator.cpp -o ./table_generator -O3
+        ./table_generator
     - name: Test Index
       run: ./ffsearch index -f "./test/names.csv" -c "full_name,nationality"
     - name: Test Search

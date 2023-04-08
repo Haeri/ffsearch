@@ -768,6 +768,7 @@ int main(int argc, char* argv[]) {
 			}
 			else {
 				std::cerr << "Indexing failed!" << std::endl;
+				return 1;
 			}
 		}
 		else if (argv[1] == std::string("insert")) {
