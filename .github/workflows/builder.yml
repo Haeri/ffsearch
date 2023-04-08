@@ -21,9 +21,12 @@ jobs:
     - name: Build
       run: |
         cl.exe /EHsc /GS /GL /Gy /Gm- /O2 /Oi /MD /sdl /std:c++17 /Fe:ffsearch.exe .\ffsearch.cpp
-    - name: Test Index
+    - name: Generate Test
       run: |
-        .\ffsearch.exe index -f ".\test\names.csv" -c "full_name,nationality"
+        cl.exe /EHsc /GS /GL /Gy /Gm- /O2 /Oi /MD /sdl /std:c++17 /Fe:.\test\table_generator.exe .\test\table_generator.cpp
+        .\test\table_generator.exe
+    - name: Test Index
+      run: .\ffsearch.exe index -f ".\test\names.csv" -c "full_name,nationality"
     - name: Test Search
       run: |
         .\ffsearch.exe search -t "names" -c "full_name" -s "Nova Gatsby" -l 30 -f
@@ -43,14 +46,17 @@ jobs:
       uses: actions/checkout@v3
     - name: Build
       run: g++ -std=c++17 ffsearch.cpp -o ffsearch -O3
-    - name: Test Index
+    - name: Generate Test
       run: |
-        .\ffsearch.exe index -f ".\test\names.csv" -c "full_name,nationality"
+        g++ -std=c++17 ./test/table_generator.cpp -o ./test/table_generator -O3
+        ./test/table_generator
+    - name: Test Index
+      run: .\ffsearch index -f ".\test\names.csv" -c "full_name,nationality"
     - name: Test Search
       run: |
-        .\ffsearch.exe search -t "names" -c "full_name" -s "Nova Gatsby" -l 30 -f
-        .\ffsearch.exe search -t "names" -c "full_name" -s "Nova Gatsby" -l 30 -f
-        .\ffsearch.exe search -t "names" -c "full_name" -s "Nova Gatsby" -l 30 -f
+        .\ffsearch search -t "names" -c "full_name" -s "Nova Gatsby" -l 30 -f
+        .\ffsearch search -t "names" -c "full_name" -s "Nova Gatsby" -l 30 -f
+        .\ffsearch search -t "names" -c "full_name" -s "Nova Gatsby" -l 30 -f
     - name: Upload
       uses: actions/upload-artifact@v3
       with:
@@ -65,14 +71,17 @@ jobs:
       uses: actions/checkout@v3
     - name: Build
       run: g++ -std=c++17 ffsearch.cpp -o ffsearch -O3
-    - name: Test Index
+    - name: Generate Test
       run: |
-        .\ffsearch.exe index -f ".\test\names.csv" -c "full_name,nationality"
+        g++ -std=c++17 ./test/table_generator.cpp -o ./test/table_generator -O3
+        ./test/table_generator
+    - name: Test Index
+      run: .\ffsearch index -f ".\test\names.csv" -c "full_name,nationality"
     - name: Test Search
       run: |
-        .\ffsearch.exe search -t "names" -c "full_name" -s "Nova Gatsby" -l 30 -f
-        .\ffsearch.exe search -t "names" -c "full_name" -s "Nova Gatsby" -l 30 -f
-        .\ffsearch.exe search -t "names" -c "full_name" -s "Nova Gatsby" -l 30 -f
+        .\ffsearch search -t "names" -c "full_name" -s "Nova Gatsby" -l 30 -f
+        .\ffsearch search -t "names" -c "full_name" -s "Nova Gatsby" -l 30 -f
+        .\ffsearch search -t "names" -c "full_name" -s "Nova Gatsby" -l 30 -f
     - name: Upload
       uses: actions/upload-artifact@v3
       with:
