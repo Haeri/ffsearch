@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <time.h>
 #include <random>
+#include <string>
 
 #define TOTAL_ROWS 2400000
 #define TOTAL_CLUSTERS 900000
@@ -32277,7 +32278,7 @@ int main(int argc, char * argv[]) {
       "\n";
 
     if (i % 1000000 == 0) {
-      std::cout << i << std::cout;
+      std::cout << i << std::endl;
       MyFile << tmp;
       tmp = "";
     }
