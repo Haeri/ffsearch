@@ -51,7 +51,7 @@ jobs:
         g++ -std=c++17 ./test/table_generator.cpp -o ./test/table_generator -O3
         ./test/table_generator
     - name: Test Index
-      run: .\ffsearch index -f ".\test\names.csv" -c "full_name,nationality"
+      run: ./ffsearch index -f "./test/names.csv" -c "full_name,nationality"
     - name: Test Search
       run: |
         ./ffsearch search -t "names" -c "full_name" -s "Nova Gatsby" -l 30 -f
@@ -76,7 +76,7 @@ jobs:
         g++ -std=c++17 ./test/table_generator.cpp -o ./test/table_generator -O3
         ./test/table_generator
     - name: Test Index
-      run: .\ffsearch index -f ".\test\names.csv" -c "full_name,nationality"
+      run: ./ffsearch index -f "./test/names.csv" -c "full_name,nationality"
     - name: Test Search
       run: |
         ./ffsearch search -t "names" -c "full_name" -s "Nova Gatsby" -l 30 -f
