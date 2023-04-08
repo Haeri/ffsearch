@@ -54,9 +54,9 @@ jobs:
       run: .\ffsearch index -f ".\test\names.csv" -c "full_name,nationality"
     - name: Test Search
       run: |
-        .\ffsearch search -t "names" -c "full_name" -s "Nova Gatsby" -l 30 -f
-        .\ffsearch search -t "names" -c "full_name" -s "Nova Gatsby" -l 30 -f
-        .\ffsearch search -t "names" -c "full_name" -s "Nova Gatsby" -l 30 -f
+        ./ffsearch search -t "names" -c "full_name" -s "Nova Gatsby" -l 30 -f
+        ./ffsearch search -t "names" -c "full_name" -s "Nova Gatsby" -l 30 -f
+        ./ffsearch search -t "names" -c "full_name" -s "Nova Gatsby" -l 30 -f
     - name: Upload
       uses: actions/upload-artifact@v3
       with:
@@ -79,9 +79,9 @@ jobs:
       run: .\ffsearch index -f ".\test\names.csv" -c "full_name,nationality"
     - name: Test Search
       run: |
-        .\ffsearch search -t "names" -c "full_name" -s "Nova Gatsby" -l 30 -f
-        .\ffsearch search -t "names" -c "full_name" -s "Nova Gatsby" -l 30 -f
-        .\ffsearch search -t "names" -c "full_name" -s "Nova Gatsby" -l 30 -f
+        ./ffsearch search -t "names" -c "full_name" -s "Nova Gatsby" -l 30 -f
+        ./ffsearch search -t "names" -c "full_name" -s "Nova Gatsby" -l 30 -f
+        ./ffsearch search -t "names" -c "full_name" -s "Nova Gatsby" -l 30 -f
     - name: Upload
       uses: actions/upload-artifact@v3
       with:

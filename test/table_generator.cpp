@@ -32248,46 +32248,37 @@ std::array < std::string, COUNTRY_COUNT > countries = {
   "Zimbabwe"
 };
 
-std::string genRandomDate() {
-  time_t now = (rand() * 50000) % (int) time(0);
-  struct tm tstruct;
-  char buf[80];
-  tstruct = * localtime( & now);
-  strftime(buf, sizeof(buf), "%d.%m.%Y", & tstruct);
-  return buf;
-}
+int main(int argc, char* argv[]) {
+	std::ofstream MyFile("names.csv");
+	std::string tmp = "id,full_name,cluster_id,nationality,country_of_residence\n";
 
-int main(int argc, char * argv[]) {
-  std::ofstream MyFile("names.csv");
-  std::string tmp = "id,full_name,cluster_id,nationality,country_of_residence\n";
+	std::random_device rd;
+	std::default_random_engine generator(rd());
+	std::uniform_int_distribution < long long unsigned > distribution(0, TOTAL_CLUSTERS);
 
-  std::random_device rd;
-  std::default_random_engine generator(rd());
-  std::uniform_int_distribution < long long unsigned > distribution(0, TOTAL_CLUSTERS);
+	for (int i = 0; i < TOTAL_ROWS; ++i) {
 
-  for (int i = 0; i < TOTAL_ROWS; ++i) {
+		long long unsigned cluster_id = distribution(generator);
 
-    long long unsigned cluster_id = distribution(generator);
+		tmp += "" +
+			std::to_string(i) + "," +
+			firstNames[rand() % FIRST_NAME_COUNT] + (rand() % 100 == 0 ? " " + firstNames[rand() % FIRST_NAME_COUNT] : "") + " " + lastNames[rand() % LAST_NAME_COUNT] + "," +
+			"id-" + std::to_string(cluster_id) + "," +
+			countries[rand() % COUNTRY_COUNT] + "," +
+			countries[rand() % COUNTRY_COUNT] +
+			"\n";
 
-    tmp += "" +
-      std::to_string(i) + "," +
-      firstNames[rand() % FIRST_NAME_COUNT] + (rand() % 100 == 0 ? " " + firstNames[rand() % FIRST_NAME_COUNT] : "") + " " + lastNames[rand() % LAST_NAME_COUNT] + "," +
-      "id-" + std::to_string(cluster_id) + "," +
-      countries[rand() % COUNTRY_COUNT] + "," +
-      countries[rand() % COUNTRY_COUNT] + 
-      "\n";
+		if (i % 1000000 == 0) {
+			std::cout << i << std::endl;
+			MyFile << tmp;
+			tmp = "";
+		}
+	}
 
-    if (i % 1000000 == 0) {
-      std::cout << i << std::endl;
-      MyFile << tmp;
-      tmp = "";
-    }
-  }
+	MyFile << tmp;
+	MyFile.close();
 
-  MyFile << tmp;
-  MyFile.close();
+	std::cout << "Done" << std::endl;
 
-  std::cout << "Done" << std::endl;
-
-  return 0;
+	return 0;
 }
