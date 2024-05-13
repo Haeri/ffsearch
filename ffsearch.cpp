@@ -15,7 +15,9 @@
 
 
 #ifdef _WIN32
+#ifndef __MINGW32__
 #define NOMINMAX
+#endif
 #include <Windows.h>
 #else
 #include <sys/mman.h>
@@ -484,6 +486,7 @@ std::string read_table(const std::string& table, int index) {
 
 	return { table_page.buffer + (line * table_page.row_size) }; // , tp.row_size);
 }
+
 std::vector<int> find_token(TreeNode* root, const std::string& token)
 {
 	TreeNode* tnp = root;
@@ -543,34 +546,51 @@ std::vector<int> find_token_root(const std::string& table, const std::string& co
 	return find_token(tree_node, sub_token);
 }
 
-void find_one_token(const std::string& table, const std::string& column, const std::string& token, bool fuzzy, std::vector<int>& results) {
-	if (fuzzy) {
-		std::vector<std::string> fuzzy_tokens;
 
-		fuzzy_tokens.push_back(token);
+void find_one_token(const std::string& table, const std::string& column, const std::string& token, bool fuzzy, std::vector<ScoredResult>& results) {
+	auto all_indices = find_token_root(table, column, token);
+    results.reserve(all_indices.size());
+    std::transform(all_indices.begin(), all_indices.end(), std::back_inserter(results),
+                   [](int num) { return ScoredResult{num, 100.0f}; });
+
+
+	if (fuzzy) {
+        float fuzzyScore = ((token.size() - 1.0f) / token.size()) * 100.0f;
+        
+        // Generate fuzzy variations
+		std::vector<std::string> fuzzy_tokens;
+		fuzzy_tokens.reserve(4 * token.size() + 1);
+
 		for (int i = 0; i < token.size(); ++i) {
-			fuzzy_tokens.push_back(token.substr(0, i) + "?" + token.substr(i)); // INSERTION
+			fuzzy_tokens.push_back(token.substr(0, i) + '?' + token.substr(i)); // INSERTION
 			fuzzy_tokens.push_back(token.substr(0, i) + token.substr(i + 1)); // DELETION
-			fuzzy_tokens.push_back(token.substr(0, i) + "?" + token.substr(i + 1)); // SUBSTITUTION
+			fuzzy_tokens.push_back(token.substr(0, i) + '?' + token.substr(i + 1)); // SUBSTITUTION
 
 			if (i < token.size() - 1) { // TRANSPOSITION
 				std::string cpy(token);
 				std::swap(cpy[i], cpy[i + 1]);
-				fuzzy_tokens.push_back(cpy);
+				fuzzy_tokens.push_back(std::move(cpy));
 			}
 		}
-		fuzzy_tokens.push_back(token + "?");
+		fuzzy_tokens.push_back(token + '?');
 
+        // Collect all fuzzy results
+        std::vector<int> all_fuzzy_indices;
+        all_fuzzy_indices.reserve(all_indices.size());
 		for (auto const& fuzzy_token : fuzzy_tokens) {
 			auto tmp = find_token_root(table, column, fuzzy_token);
-			results.insert(results.begin(), tmp.begin(), tmp.end());
-			std::sort(results.begin(), results.end());
-			results.erase(std::unique(results.begin(), results.end()), results.end());
+	        all_fuzzy_indices.insert(all_fuzzy_indices.end(), std::make_move_iterator(tmp.begin()), std::make_move_iterator(tmp.end()));
 		}
-	}
-	else {
-
-		results = find_token_root(table, column, token);
+		
+		// Sort the and remove dublicates
+		std::sort(all_fuzzy_indices.begin(), all_fuzzy_indices.end());
+		all_fuzzy_indices.erase(std::unique(all_fuzzy_indices.begin(), all_fuzzy_indices.end()), all_fuzzy_indices.end());
+		all_fuzzy_indices.erase(std::remove_if(all_fuzzy_indices.begin(), all_fuzzy_indices.end(), [&all_indices](auto x) {
+            return std::find(all_indices.begin(), all_indices.end(), x) != all_indices.end();
+        }), all_fuzzy_indices.end()); 
+		
+	    std::transform(all_fuzzy_indices.begin(), all_fuzzy_indices.end(), std::back_inserter(results),
+               [&fuzzyScore](int num) { return ScoredResult{num, fuzzyScore}; });
 	}
 }
 
@@ -578,18 +598,15 @@ std::vector<ScoredResult> find_all_tokens(const std::string& table, const std::s
 	if (trie_cache == nullptr)
 		trie_cache = new TreeNode;
 
-	std::vector<std::vector<int>> thread_results;
-	std::unordered_map<int, int> results;
-	std::vector<std::string> tokens;
+	std::vector<std::vector<ScoredResult>> thread_results;
+	std::vector<std::thread> threads;
 
 	std::string normalized_input = normalize_string(input);
+	std::vector<std::string> tokens = split(normalized_input, ' ');
 
-	tokens = split(normalized_input, ' ');
-
+	threads.reserve(tokens.size());
 	thread_results.reserve(tokens.size());
 
-	std::mutex resultsMutex;
-	std::vector<std::thread> threads;
 	int i = 0;
 	for (const std::string& token : tokens) {
 		thread_results.push_back({});
@@ -600,25 +617,31 @@ std::vector<ScoredResult> find_all_tokens(const std::string& table, const std::s
 		t.join();
 	}
 
+    struct score_and_count {
+        float score;
+        int count;
+    };
+    
+	std::unordered_map<int, score_and_count> score_sum;
 	for (auto const& results_arr : thread_results) {
-		for (int index : results_arr) {
-			if (results.find(index) == results.end()) {
-				results[index] = 1;
+		for (ScoredResult sr : results_arr) {
+			if (score_sum.find(sr.index) == score_sum.end()) {
+				score_sum[sr.index] = {sr.score, 1};
 			}
 			else {
-				results[index] = results[index] + 1;
+				score_sum[sr.index] = {score_sum[sr.index].score + sr.score, score_sum[sr.index].count + 1};
 			}
 		}
 	}
 
 
 	std::vector<ScoredResult> ret;
-	for (auto const& [index, score] : results) {
-		if (and_op&& score < tokens.size()) continue;
+	for (auto const& [index, snc] : score_sum) {
+		if (and_op&& snc.count < tokens.size()) continue;
 
 		ret.push_back({
 			index,
-			(float)score
+			snc.score
 			});
 	}
 	std::sort(ret.begin(), ret.end(), [](const ScoredResult& a, const ScoredResult& b) {

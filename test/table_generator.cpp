@@ -1,19 +1,19 @@
 #include <iostream>
+#include <iostream>
 #include <array>
 #include <fstream>
-#include <stdlib.h>
-#include <time.h>
+#include <sstream>
 #include <random>
 #include <string>
 
-#define TOTAL_ROWS 2400000
-#define TOTAL_CLUSTERS 900000
+constexpr size_t TOTAL_ROWS = 2400000;
+constexpr size_t TOTAL_CLUSTERS = 900000;
 
-#define FIRST_NAME_COUNT 24956
-#define LAST_NAME_COUNT 7023
-#define COUNTRY_COUNT 249
+constexpr size_t FIRST_NAME_COUNT = 24956;
+constexpr size_t LAST_NAME_COUNT = 7023;
+constexpr size_t COUNTRY_COUNT = 249;
 
-std::array < std::string, FIRST_NAME_COUNT > firstNames = {
+const std::array<std::string, FIRST_NAME_COUNT>& firstNames = {
   "Aabraham",
   "Aada",
   "Aadan",
@@ -24971,7 +24971,7 @@ std::array < std::string, FIRST_NAME_COUNT > firstNames = {
   "Zygmunt",
   "Zyta"
 };
-std::array < std::string, LAST_NAME_COUNT > lastNames = {
+const std::array<std::string, FIRST_NAME_COUNT>& lastNames = {
   "Aafjes",
   "Aaij",
   "Aakster",
@@ -31996,7 +31996,7 @@ std::array < std::string, LAST_NAME_COUNT > lastNames = {
   "Żuraw",
   "Zyma"
 };
-std::array < std::string, COUNTRY_COUNT > countries = {
+const std::array<std::string, FIRST_NAME_COUNT>& countries = {
   "Afghanistan",
   "Åland Islands",
   "Albania",
@@ -32248,37 +32248,42 @@ std::array < std::string, COUNTRY_COUNT > countries = {
   "Zimbabwe"
 };
 
-int main(int argc, char* argv[]) {
+int main() {
 	std::ofstream MyFile("names.csv");
-	std::string tmp = "id,full_name,cluster_id,nationality,country_of_residence\n";
+	std::stringstream tmp;
+	tmp << "id,full_name,cluster_id,nationality,country_of_residence\n";
 
 	std::random_device rd;
 	std::default_random_engine generator(rd());
-	std::uniform_int_distribution < long long unsigned > distribution(0, TOTAL_CLUSTERS);
+	std::uniform_int_distribution<size_t> distribution(0, TOTAL_CLUSTERS);
 
-	for (int i = 0; i < TOTAL_ROWS; ++i) {
+	for (size_t i = 0; i < TOTAL_ROWS; ++i) {
+		size_t cluster_id = distribution(generator);
 
-		long long unsigned cluster_id = distribution(generator);
-
-		tmp += "" +
-			std::to_string(i) + "," +
-			firstNames[rand() % FIRST_NAME_COUNT] + (rand() % 100 == 0 ? " " + firstNames[rand() % FIRST_NAME_COUNT] : "") + " " + lastNames[rand() % LAST_NAME_COUNT] + "," +
-			"id-" + std::to_string(cluster_id) + "," +
-			countries[rand() % COUNTRY_COUNT] + "," +
-			countries[rand() % COUNTRY_COUNT] +
+		tmp << i << "," <<
+			firstNames[rand() % FIRST_NAME_COUNT] <<
+			(rand() % 100 == 0 ? " " + firstNames[rand() % FIRST_NAME_COUNT] : "") <<
+			" " <<
+			lastNames[rand() % LAST_NAME_COUNT] <<
+			",id-" <<
+			cluster_id <<
+			"," <<
+			countries[rand() % COUNTRY_COUNT] <<
+			"," <<
+			countries[rand() % COUNTRY_COUNT] <<
 			"\n";
 
-		if (i % 1000000 == 0) {
-			std::cout << i << std::endl;
-			MyFile << tmp;
-			tmp = "";
+		if (i % 10000 == 0) {
+			std::cout << i << "\n";
+			MyFile << tmp.str();
+			tmp.str("");
 		}
 	}
 
-	MyFile << tmp;
+	MyFile << tmp.str();
 	MyFile.close();
 
-	std::cout << "Done" << std::endl;
+	std::cout << "Done\n";
 
 	return 0;
 }
