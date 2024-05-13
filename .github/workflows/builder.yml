@@ -34,7 +34,7 @@ jobs:
         .\ffsearch.exe search -t "names" -c "full_name" -s "Nova Gatsby" -l 30 -f
         .\ffsearch.exe search -t "names" -c "full_name" -s "Nova Gatsby" -l 30 -f
     - name: Upload
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: ffsearch_x64-windows
         path: 'ffsearch.exe'
@@ -60,7 +60,7 @@ jobs:
         ./ffsearch search -t "names" -c "full_name" -s "Nova Gatsby" -l 30 -f
         ./ffsearch search -t "names" -c "full_name" -s "Nova Gatsby" -l 30 -f
     - name: Upload
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: ffsearch_x64-linux
         path: 'ffsearch'
@@ -86,7 +86,7 @@ jobs:
         ./ffsearch search -t "names" -c "full_name" -s "Nova Gatsby" -l 30 -f
         ./ffsearch search -t "names" -c "full_name" -s "Nova Gatsby" -l 30 -f
     - name: Upload
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: ffsearch_x64-macos
         path: 'ffsearch'

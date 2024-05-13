@@ -222,6 +222,42 @@ std::string to_lowercase(const std::string& s) {
 	return result;
 }
 
+// Function to remove leading and trailing whitespaces from a string
+std::string trim(const std::string& str) {
+	size_t start = 0;
+	size_t end = str.length() - 1;
+
+	while (start <= end && std::isspace(str[start]))
+		++start;
+
+	while (end >= start && std::isspace(str[end]))
+		--end;
+
+	return str.substr(start, end - start + 1);
+}
+
+// Function to remove multiple whitespaces from a string
+std::string removeExtraSpaces(const std::string& str) {
+	std::string result;
+	result.reserve(str.size()); // Reserve space to avoid dynamic resizing
+
+	bool previousIsSpace = false;
+	for (char c : str) {
+		if (!std::isspace(c)) {
+			result.push_back(c);
+			previousIsSpace = false;
+		}
+		else {
+			if (!previousIsSpace) {
+				result.push_back(' ');
+				previousIsSpace = true;
+			}
+		}
+	}
+	return result;
+}
+
+
 std::string normalize_string(const std::string& text) {
 	std::string output;
 	std::string tmp;
@@ -248,6 +284,8 @@ std::string normalize_string(const std::string& text) {
 			//	std::cout << "Remove " << c << " from " << text << " -> " << tmp << " -> " << output << std::endl;
 		}
 	}
+
+	output = trim(removeExtraSpaces(output));
 
 	return output;
 }
@@ -530,7 +568,7 @@ std::vector<int> find_token_root(const std::string& table, const std::string& co
 	TreeNode* tree_node;
 
 	unsigned char key = token[0];
-	if (key == SINGLE_WILDCARD ||  key == MULTI_WILDCARD) return {}; // skip wildcard prefix for now
+	if (key == SINGLE_WILDCARD || key == MULTI_WILDCARD) return {}; // skip wildcard prefix for now
 	if (trie_cache->children.find(key) == trie_cache->children.end()) {
 		tree_node = deserialize_trie(std::string(TABLE_DIR).append("/").append(table).append("/index/").append(column).append("/trie/").append(std::to_string(key)));
 		if (tree_node == nullptr) return{};
@@ -552,12 +590,16 @@ void find_one_token(const std::string& table, const std::string& column, const s
     results.reserve(all_indices.size());
     std::transform(all_indices.begin(), all_indices.end(), std::back_inserter(results),
                    [](int num) { return ScoredResult{num, 100.0f}; });
+	results.reserve(all_indices.size());
+	std::transform(all_indices.begin(), all_indices.end(), std::back_inserter(results),
+		[](int num) { return ScoredResult{ num, 100.0f }; });
 
 
 	if (fuzzy) {
         float fuzzyScore = ((token.size() - 1.0f) / token.size()) * 100.0f;
-        
-        // Generate fuzzy variations
+		float fuzzyScore = ((token.size() - 1.0f) / token.size()) * 100.0f;
+
+		// Generate fuzzy variations
 		std::vector<std::string> fuzzy_tokens;
 		fuzzy_tokens.reserve(4 * token.size() + 1);
 
@@ -574,23 +616,23 @@ void find_one_token(const std::string& table, const std::string& column, const s
 		}
 		fuzzy_tokens.push_back(token + '?');
 
-        // Collect all fuzzy results
-        std::vector<int> all_fuzzy_indices;
-        all_fuzzy_indices.reserve(all_indices.size());
+		// Collect all fuzzy results
+		std::vector<int> all_fuzzy_indices;
+		all_fuzzy_indices.reserve(all_indices.size());
 		for (auto const& fuzzy_token : fuzzy_tokens) {
 			auto tmp = find_token_root(table, column, fuzzy_token);
-	        all_fuzzy_indices.insert(all_fuzzy_indices.end(), std::make_move_iterator(tmp.begin()), std::make_move_iterator(tmp.end()));
+			all_fuzzy_indices.insert(all_fuzzy_indices.end(), std::make_move_iterator(tmp.begin()), std::make_move_iterator(tmp.end()));
 		}
-		
+
 		// Sort the and remove dublicates
 		std::sort(all_fuzzy_indices.begin(), all_fuzzy_indices.end());
 		all_fuzzy_indices.erase(std::unique(all_fuzzy_indices.begin(), all_fuzzy_indices.end()), all_fuzzy_indices.end());
 		all_fuzzy_indices.erase(std::remove_if(all_fuzzy_indices.begin(), all_fuzzy_indices.end(), [&all_indices](auto x) {
-            return std::find(all_indices.begin(), all_indices.end(), x) != all_indices.end();
-        }), all_fuzzy_indices.end()); 
-		
-	    std::transform(all_fuzzy_indices.begin(), all_fuzzy_indices.end(), std::back_inserter(results),
-               [&fuzzyScore](int num) { return ScoredResult{num, fuzzyScore}; });
+			return std::find(all_indices.begin(), all_indices.end(), x) != all_indices.end();
+			}), all_fuzzy_indices.end());
+
+		std::transform(all_fuzzy_indices.begin(), all_fuzzy_indices.end(), std::back_inserter(results),
+			[&fuzzyScore](int num) { return ScoredResult{ num, fuzzyScore }; });
 	}
 }
 
@@ -617,19 +659,19 @@ std::vector<ScoredResult> find_all_tokens(const std::string& table, const std::s
 		t.join();
 	}
 
-    struct score_and_count {
-        float score;
-        int count;
-    };
-    
+	struct score_and_count {
+		float score;
+		int count;
+	};
+
 	std::unordered_map<int, score_and_count> score_sum;
 	for (auto const& results_arr : thread_results) {
 		for (ScoredResult sr : results_arr) {
 			if (score_sum.find(sr.index) == score_sum.end()) {
-				score_sum[sr.index] = {sr.score, 1};
+				score_sum[sr.index] = { sr.score, 1 };
 			}
 			else {
-				score_sum[sr.index] = {score_sum[sr.index].score + sr.score, score_sum[sr.index].count + 1};
+				score_sum[sr.index] = { score_sum[sr.index].score + sr.score, score_sum[sr.index].count + 1 };
 			}
 		}
 	}
@@ -654,6 +696,19 @@ std::vector<ScoredResult> find_all_tokens(const std::string& table, const std::s
 
 void ff_search(const std::string& table, const std::string& column, const std::string& query, unsigned int limit = 100, bool and_op = false, bool fuzzy = false) {
 	std::cout << "Searching for '" << query << (fuzzy ? "~" : "") << "' in '" << table << ":" << column << "'" << std::endl;
+
+	// Check if table exists
+	std::string table_path = TABLE_DIR + "/" + table;
+	if (!std::filesystem::is_directory(table_path)) {
+		std::cerr << "Error: table '" << table << "' not found" << std::endl;
+		return;
+	}
+	// Check if column exists
+	std::string column_path = TABLE_DIR + "/" + table + "/index/" + column;
+	if (!std::filesystem::is_directory(column_path)) {
+		std::cerr << "Error: column '" << column << "' not found" << std::endl;
+		return;
+	}
 
 	auto start = high_resolution_clock::now();
 	auto results = find_all_tokens(table, column, query, and_op, fuzzy);
