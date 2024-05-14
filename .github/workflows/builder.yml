@@ -12,12 +12,9 @@ jobs:
    runs-on: windows-latest
    steps:
     - name: Download Repository
+      uses: actions/checkout@v4
     - name: Setup Environment
       uses: seanmiddleditch/gha-setup-vsdevenv@v4
-    # run: | 
-    #    $vsPath = & "$env:ProgramFiles (x86)\Microsoft Visual Studio\Installer\vswhere" -latest -property installationPath
-    #    $vsDevCmdPath = Join-Path $vsPath "\Common7\Tools\VsDevCmd.bat"
-      uses: actions/checkout@v4
     - name: Build
       run: |
         cl.exe /EHsc /GS /GL /Gy /Gm- /O2 /Oi /MD /sdl /std:c++17 /Fe:ffsearch.exe .\ffsearch.cpp
