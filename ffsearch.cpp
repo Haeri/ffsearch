@@ -586,17 +586,14 @@ std::vector<int> find_token_root(const std::string& table, const std::string& co
 
 
 void find_one_token(const std::string& table, const std::string& column, const std::string& token, bool fuzzy, std::vector<ScoredResult>& results) {
+
 	auto all_indices = find_token_root(table, column, token);
-    results.reserve(all_indices.size());
-    std::transform(all_indices.begin(), all_indices.end(), std::back_inserter(results),
-                   [](int num) { return ScoredResult{num, 100.0f}; });
 	results.reserve(all_indices.size());
 	std::transform(all_indices.begin(), all_indices.end(), std::back_inserter(results),
 		[](int num) { return ScoredResult{ num, 100.0f }; });
 
 
 	if (fuzzy) {
-        float fuzzyScore = ((token.size() - 1.0f) / token.size()) * 100.0f;
 		float fuzzyScore = ((token.size() - 1.0f) / token.size()) * 100.0f;
 
 		// Generate fuzzy variations
