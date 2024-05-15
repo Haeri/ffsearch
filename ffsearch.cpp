@@ -803,7 +803,6 @@ std::vector<ScoredResult> find_all_tokens(const std::string &table, const std::s
 
 void ff_search(const std::string &table, const std::string &column, const std::string &query, unsigned int limit = 100, bool and_op = false, bool fuzzy = false, unsigned int offset = 0)
 {
-	std::cout << "{\n";
 
 	std::string table_path = TABLE_DIR + "/" + table;
 	if (!std::filesystem::is_directory(table_path))
@@ -829,6 +828,7 @@ void ff_search(const std::string &table, const std::string &column, const std::s
 		schema = deserialize_schema(table);
 	}
 
+	std::cout << "{\n";
 	std::cout << "  \"status\": \"ok\",\n";
 
 	std::cout << "  \"input\": {\n";
@@ -861,10 +861,7 @@ void ff_search(const std::string &table, const std::string &column, const std::s
 		std::cout << "      {\n";
 		for (size_t j = 0; j < schema.size(); ++j)
 		{
-			std::cout << "        \"" << schema[j] << "\": \"" << obj[j] << "\"";
-			if (j != schema.size() - 1)
-				std::cout << ",";
-			std::cout << "\n";
+			std::cout << "        \"" << schema[j] << "\": \"" << obj[j] << "\",\n";
 		}
 
 		std::cout << "        \"__score\": " << results[i].score << "\n";

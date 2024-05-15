@@ -1,63 +1,38 @@
 <?php
 
-function parsePostRequest()
-{
-    // Get the raw POST data
-    $post_data = file_get_contents('php://input');
+header('Content-Type: application/json');
 
-    // Parse JSON data
-    $parsed_data = json_decode($post_data, true);
+// Get the raw POST data
+$post_data = file_get_contents('php://input');
 
-    // Check if data is not empty and contains required fields
-    if ($parsed_data && isset($parsed_data['table'], $parsed_data['column'], $parsed_data['query'])) {
-        // Extract the required fields
-        $table = $parsed_data['table'];
-        $column = $parsed_data['column'];
-        $query = $parsed_data['query'];
+// Parse JSON data
+$parsed_data = json_decode($post_data, true);
 
-        // Extract optional fields if they exist, otherwise set default values
-        $limit = isset($parsed_data['limit']) ? $parsed_data['limit'] : null;
-        $fuzzy = isset($parsed_data['fuzzy']) ? $parsed_data['fuzzy'] : null;
-        $andOp = isset($parsed_data['andOp']) ? $parsed_data['andOp'] : null;
-        $offset = isset($parsed_data['offset']) ? $parsed_data['offset'] : null;
-
-        // Return the extracted data
-        return [
-            'table' => $table,
-            'column' => $column,
-            'query' => $query,
-            'limit' => $limit,
-            'offset' => $offset,
-            'fuzzy' => $fuzzy,
-            'andOp' => $andOp
-        ];
-    } else {
-        // If required fields are missing, return an error or handle it according to your needs
-        return null;
-    }
-}
-
-$data = parsePostRequest();
 
 // Build the base command
-$command = "ffsearch.exe search -t \"{$data['table']}\" -c \"{$data['column']}\" -s \"{$data['query']}\"";
+$command = "./ffsearch search";
 
 // Add optional parameters if provided
-if ($data['limit'] !== null) {
-    $command .= " -l \"{$data['limit']}\"";
+if (!empty($parsed_data['table'])) {
+    $command .= " -t \"{$parsed_data['table']}\"";
+}
+if (!empty($parsed_data['column'])) {
+    $command .= " -c \"{$parsed_data['column']}\"";
+}
+if (!empty($parsed_data['query'])) {
+    $command .= " -s \"{$parsed_data['query']}\"";
+}
+if (!empty($parsed_data['limit'])) {
+    $command .= " -l \"{$parsed_data['limit']}\"";
+}
+if (!empty($parsed_data['offset'])) {
+    $command .= " -o \"{$parsed_data['offset']}\"";
+}
+if (!empty($parsed_data['fuzzy'])) {
+    $command .= " -f \"{$parsed_data['fuzzy']}\"";
+}
+if (!empty($parsed_data['andOp'])) {
+    $command .= " -a \"{$parsed_data['andOp']}\"";
 }
 
-if ($data['offset'] !== null) {
-    $command .= " -o \"{$data['offset']}\"";
-}
-
-if ($data['fuzzy'] !== null) {
-    $command .= " -f \"{$data['fuzzy']}\"";
-}
-
-if ($data['andOp'] !== null) {
-    $command .= " -a \"{$data['andOp']}\"";
-}
-
-header('Content-Type: application/json');
 echo shell_exec($command);

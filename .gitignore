@@ -1,2 +1,5 @@
 tables/
+data/
 \.vs
+*.exe
+*.csv

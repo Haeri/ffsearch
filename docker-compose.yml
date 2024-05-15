@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  ffsearch:
+    image: haeri/ffsearch:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:80"
+    volumes:
+      - ./data:/var/www/html/tables
+
+volumes:
+  data:
