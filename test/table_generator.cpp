@@ -30,8 +30,7 @@ int main()
   std::stringstream tmp;
   tmp << "id,full_name,cluster_id,nationality,country_of_residence\n";
 
-  std::random_device rd;
-  std::default_random_engine generator(rd());
+  std::default_random_engine generator(42);
   std::uniform_int_distribution<size_t> distribution(0, TOTAL_CLUSTERS);
 
   for (size_t i = 0; i < TOTAL_ROWS; ++i)
