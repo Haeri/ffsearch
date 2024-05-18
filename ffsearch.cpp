@@ -255,6 +255,63 @@ std::string trim(const std::string &str)
 	return str.substr(start, end - start + 1);
 }
 
+std::string escape_json_string(const std::string &input)
+{
+	std::ostringstream ss;
+	ss << std::quoted(input, '"', '\\');
+	std::string escaped = ss.str();
+
+	// std::quoted adds extra quotes around the string, remove them
+	if (!escaped.empty() && escaped.front() == '"' && escaped.back() == '"')
+	{
+		escaped = escaped.substr(1, escaped.size() - 2);
+	}
+
+	// Replace newlines, tabs, and other control characters
+	std::string result;
+	for (char c : escaped)
+	{
+		switch (c)
+		{
+		case '"':
+			result += "\\\"";
+			break;
+		case '\\':
+			result += "\\\\";
+			break;
+		case '\b':
+			result += "\\b";
+			break;
+		case '\f':
+			result += "\\f";
+			break;
+		case '\n':
+			result += "\\n";
+			break;
+		case '\r':
+			result += "\\r";
+			break;
+		case '\t':
+			result += "\\t";
+			break;
+		default:
+			if ('\x00' <= c && c <= '\x1f')
+			{
+				ss.str("");
+				ss.clear();
+				ss << "\\u" << std::setw(4) << std::setfill('0') << std::hex << std::uppercase << static_cast<int>(c);
+				result += ss.str();
+			}
+			else
+			{
+				result += c;
+			}
+		}
+	}
+
+	return result;
+}
+
 // Function to remove multiple whitespaces from a string
 std::string removeExtraSpaces(const std::string &str)
 {
@@ -498,6 +555,7 @@ void generate_table(const std::string &path, const std::vector<std::string> &tab
 		outfile.write(reinterpret_cast<const char *>(chunks), sizeof(char) * max_row_size * row_count);
 
 		outfile.close();
+		delete[] chunks;
 	}
 }
 
@@ -743,21 +801,17 @@ std::vector<ScoredResult> find_all_tokens(const std::string &table, const std::s
 	if (trie_cache == nullptr)
 		trie_cache = new TreeNode;
 
-	std::vector<std::vector<ScoredResult>> thread_results;
-	std::vector<std::thread> threads;
-
 	std::string normalized_input = normalize_string(input);
 	std::vector<std::string> tokens = split(normalized_input, ' ');
 
-	threads.reserve(tokens.size());
-	thread_results.reserve(tokens.size());
+	size_t token_count = tokens.size();
+	std::vector<std::vector<ScoredResult>> thread_results(token_count);
+	std::vector<std::thread> threads;
+	threads.reserve(token_count);
 
-	int i = 0;
-	for (const std::string &token : tokens)
+	for (size_t i = 0; i < token_count; ++i)
 	{
-		thread_results.push_back({});
-		threads.emplace_back(find_one_token, table, column, token, fuzzy, std::ref(thread_results[i]));
-		++i;
+		threads.emplace_back(find_one_token, table, column, std::cref(tokens[i]), fuzzy, std::ref(thread_results[i]));
 	}
 	for (auto &t : threads)
 	{
@@ -766,35 +820,31 @@ std::vector<ScoredResult> find_all_tokens(const std::string &table, const std::s
 
 	struct score_and_count
 	{
-		float score;
-		int count;
+		float score = 0.0f;
+		int count = 0;
 	};
 
 	std::unordered_map<int, score_and_count> score_sum;
-	for (auto const &results_arr : thread_results)
+
+	for (const auto &results_arr : thread_results)
 	{
-		for (ScoredResult sr : results_arr)
+		for (const ScoredResult &sr : results_arr)
 		{
-			if (score_sum.find(sr.index) == score_sum.end())
-			{
-				score_sum[sr.index] = {sr.score, 1};
-			}
-			else
-			{
-				score_sum[sr.index] = {score_sum[sr.index].score + sr.score, score_sum[sr.index].count + 1};
-			}
+			auto &entry = score_sum[sr.index];
+			entry.score += sr.score;
+			entry.count += 1;
 		}
 	}
 
 	std::vector<ScoredResult> ret;
-	for (auto const &[index, snc] : score_sum)
+	ret.reserve(score_sum.size());
+	for (const auto &[index, snc] : score_sum)
 	{
-		if (and_op && snc.count < tokens.size())
+		if (and_op && snc.count < static_cast<int>(token_count))
 			continue;
-
-		ret.push_back({index,
-					   snc.score});
+		ret.push_back({index, snc.score});
 	}
+
 	std::sort(ret.begin(), ret.end(), [](const ScoredResult &a, const ScoredResult &b)
 			  { return a.score > b.score; });
 
@@ -832,9 +882,9 @@ void ff_search(const std::string &table, const std::string &column, const std::s
 	std::cout << "  \"status\": \"ok\",\n";
 
 	std::cout << "  \"input\": {\n";
-	std::cout << "    \"table\": \"" << table << "\",\n";
-	std::cout << "    \"column\": \"" << column << "\",\n";
-	std::cout << "    \"query\": \"" << query << "\",\n";
+	std::cout << "    \"table\": \"" << escape_json_string(table) << "\",\n";
+	std::cout << "    \"column\": \"" << escape_json_string(column) << "\",\n";
+	std::cout << "    \"query\": \"" << escape_json_string(query) << "\",\n";
 	if (limit != 100)
 		std::cout << "    \"limit\": " << limit << ",\n";
 	if (offset != 0)
@@ -861,7 +911,7 @@ void ff_search(const std::string &table, const std::string &column, const std::s
 		std::cout << "      {\n";
 		for (size_t j = 0; j < schema.size(); ++j)
 		{
-			std::cout << "        \"" << schema[j] << "\": \"" << obj[j] << "\",\n";
+			std::cout << "        \"" << escape_json_string(schema[j]) << "\": \"" << escape_json_string(obj[j]) << "\",\n";
 		}
 
 		std::cout << "        \"__score\": " << results[i].score << "\n";
