@@ -12,6 +12,7 @@
 #include <string_view>
 #include <thread>
 #include <mutex>
+#include <condition_variable>
 
 #ifdef _WIN32
 #ifndef __MINGW32__
@@ -375,6 +376,17 @@ std::string normalize_string(const std::string &text)
 	return output;
 }
 
+template <typename... Args>
+void log_debug(const Args &...args)
+{
+	return;
+	{
+		std::ostringstream ss;
+		(ss << ... << args) << "\n"; // Fold expression for variadic templates
+		std::cout << ss.str();
+	}
+}
+
 void err_out(const std::string &err_message)
 {
 	std::cout << "{\n";
@@ -447,6 +459,8 @@ void deserialize_node(TreeNode *node, std::ifstream &infile)
 
 TreeNode *deserialize_trie(const std::string &filename)
 {
+	log_debug(std::this_thread::get_id(), " deserialize_trie", filename);
+
 	std::ifstream infile(filename, std::ios::binary);
 	if (!infile.is_open())
 	{
@@ -674,6 +688,8 @@ std::string read_table(const std::string &table, int index)
 
 std::vector<int> find_token(TreeNode *root, const std::string &token)
 {
+	log_debug(std::this_thread::get_id(), " find_token ", token);
+
 	TreeNode *tnp = root;
 	std::vector<int> ret;
 
@@ -717,23 +733,56 @@ std::vector<int> find_token(TreeNode *root, const std::string &token)
 	return ret;
 }
 
+std::mutex cache_mutex;
+std::condition_variable cache_cv;
+std::unordered_map<unsigned char, bool> cache_in_progress;
+
 std::vector<int> find_token_root(const std::string &table, const std::string &column, const std::string &token)
 {
+	log_debug(std::this_thread::get_id(), " find_token_root ", token);
+
 	TreeNode *tree_node;
 
 	unsigned char key = token[0];
 	if (key == SINGLE_WILDCARD || key == MULTI_WILDCARD)
 		return {}; // skip wildcard prefix for now
-	if (trie_cache->children.find(key) == trie_cache->children.end())
+
 	{
-		tree_node = deserialize_trie(std::string(TABLE_DIR).append("/").append(table).append("/index/").append(column).append("/trie/").append(std::to_string(key)));
-		if (tree_node == nullptr)
-			return {};
-		trie_cache->children[key] = tree_node;
-	}
-	else
-	{
-		tree_node = trie_cache->children[key];
+		std::unique_lock<std::mutex> lock(cache_mutex);
+
+		while (cache_in_progress[key])
+		{
+			// Wait if another thread is already deserializing this key
+			cache_cv.wait(lock);
+		}
+
+		if (trie_cache->children.find(key) == trie_cache->children.end())
+		{
+			// Mark that we're deserializing this key
+			cache_in_progress[key] = true;
+			lock.unlock();
+
+			// Perform deserialization outside the critical section
+			tree_node = deserialize_trie(std::string(TABLE_DIR).append("/").append(table).append("/index/").append(column).append("/trie/").append(std::to_string(key)));
+
+			lock.lock();
+			if (tree_node == nullptr)
+			{
+				// Remove the progress marker and notify all waiting threads
+				cache_in_progress.erase(key);
+				cache_cv.notify_all();
+				return {};
+			}
+			trie_cache->children[key] = tree_node;
+			// Remove the progress marker
+			cache_in_progress.erase(key);
+			cache_cv.notify_all();
+		}
+		else
+		{
+			// If the key is already in the cache, use it directly
+			tree_node = trie_cache->children[key];
+		}
 	}
 
 	// Remove first letter
@@ -744,6 +793,7 @@ std::vector<int> find_token_root(const std::string &table, const std::string &co
 
 void find_one_token(const std::string &table, const std::string &column, const std::string &token, bool fuzzy, std::vector<ScoredResult> &results)
 {
+	log_debug(std::this_thread::get_id(), " find_one_token ", token);
 
 	auto all_indices = find_token_root(table, column, token);
 	results.reserve(all_indices.size());
