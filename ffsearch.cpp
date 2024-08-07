@@ -901,7 +901,7 @@ std::vector<ScoredResult> find_all_tokens(const std::string &table, const std::s
 	return ret;
 }
 
-void ff_search(const std::string &table, const std::string &column, const std::string &query, unsigned int limit = 100, bool and_op = false, bool fuzzy = false, unsigned int offset = 0)
+void ff_search(const std::string &table, const std::string &column, const std::string &query, unsigned int limit = 10, bool and_op = false, bool fuzzy = false, unsigned int offset = 0)
 {
 
 	std::string table_path = TABLE_DIR + "/" + table;
@@ -934,16 +934,17 @@ void ff_search(const std::string &table, const std::string &column, const std::s
 	std::cout << "  \"input\": {\n";
 	std::cout << "    \"table\": \"" << escape_json_string(table) << "\",\n";
 	std::cout << "    \"column\": \"" << escape_json_string(column) << "\",\n";
-	std::cout << "    \"query\": \"" << escape_json_string(query) << "\",\n";
-	if (limit != 100)
-		std::cout << "    \"limit\": " << limit << ",\n";
-	if (offset != 0)
-		std::cout << "    \"offset\": " << offset << ",\n";
-	if (fuzzy)
-		std::cout << "    \"fuzzy\": " << (fuzzy ? "true" : "false") << ",\n";
-	if (and_op)
-		std::cout << "    \"and_op\": " << (and_op ? "true" : "false") << ",\n";
-	std::cout << "  },\n";
+    std::cout << "    \"query\": \"" << escape_json_string(query) << "\"";
+
+    if (limit != 10)
+        std::cout << ",\n    \"limit\": " << limit;
+    if (offset != 0)
+        std::cout << ",\n    \"offset\": " << offset;
+    if (fuzzy)
+        std::cout << ",\n    \"fuzzy\": " << (fuzzy ? "true" : "false");
+    if (and_op)
+        std::cout << ",\n    \"and_op\": " << (and_op ? "true" : "false");
+	std::cout << "\n  },\n";
 
 	std::cout << "  \"result\": {\n";
 	std::cout << "    \"meta\": {\n";
